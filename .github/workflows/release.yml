@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Номер релиза (например: v1.2.0)'
+        description: 'Номер релиза (например: v1.3.0)'
         required: true
-        default: 'v1.2.0'
+        default: 'v1.3.0'
 
 permissions:
   contents: write
@@ -24,14 +24,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js 20.x
+      - name: Setup Node.js 22.x
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 22
 
       - name: Install Dependencies
-        run: npm ci || npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build Production Assets
         run: npm run build
@@ -47,6 +46,7 @@ jobs:
 
       - name: Archive Production Build
         run: |
+          sudo apt-get update && sudo apt-get install -y zip
           cd dist && zip -r ../notebook-smart-pwa-${{ steps.vars.outputs.tag }}.zip ./* && cd ..
 
       - name: Publish GitHub Release

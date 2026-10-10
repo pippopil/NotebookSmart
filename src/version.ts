@@ -11,16 +11,16 @@ export interface ReleaseNote {
   }[];
 }
 
-export const APP_VERSION = '1.3.0';
-export const APP_BUILD = 130;
+export const APP_VERSION = '1.3.1';
+export const APP_BUILD = 131;
 export const APP_RELEASE_DATE = '10 октября 2026';
 
 export const RELEASES_HISTORY: ReleaseNote[] = [
   {
-    version: '1.3.0',
+    version: '1.3.1',
     releaseDate: '10 октября 2026',
     isLatest: true,
-    title: 'Тетрадь в клеточку, раздельные разделы (Заметки / Покупки / События) и новая иконка',
+    title: 'Исправление CI/CD сборки GitHub Actions, тетрадь в клеточку и PWA',
     highlights: [
       'Оригинальная векторная икона приложения: тетрадь в клеточку со спиралью, полями и умными бейджами',
       'Раздельный выбор: «Просто заметка», «Покупки», «События» в нижней панели и редакторе',
