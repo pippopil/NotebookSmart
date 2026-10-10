@@ -3,6 +3,8 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { SyncStatus } from '../types';
 import { Cloud, CloudOff, RefreshCw, Github, Sparkles, WifiOff } from 'lucide-react';
 
+import { APP_VERSION } from '../version';
+
 interface HeaderProps {
   syncStatus: SyncStatus;
   isOnline: boolean;
@@ -39,7 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition active:scale-95 cursor-pointer flex items-center gap-1"
                 title="Что нового? История версий"
               >
-                <span>v1.2.0</span>
+                <span>v{APP_VERSION}</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               </button>
             </div>

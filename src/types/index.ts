@@ -1,14 +1,22 @@
+export type NoteCategory = 'note' | 'shopping' | 'event' | 'payment' | 'general' | 'budget';
+
 export interface Note {
   id: string;
   title: string;
   content: string;
   createdAt: number;
   updatedAt: number;
-  category: 'payment' | 'shopping' | 'general' | 'budget';
+  category: NoteCategory;
   color?: string;
   isPinned?: boolean;
   isArchived?: boolean;
   tags: string[];
+  // Event specific
+  eventDate?: string;
+  eventTime?: string;
+  isEventDone?: boolean;
+  // Notebook Paper Style
+  paperStyle?: 'grid' | 'dark-grid' | 'lines' | 'plain';
   // Calculated cache
   cachedTotal?: number;
   currency?: string;

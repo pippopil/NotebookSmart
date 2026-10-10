@@ -2,22 +2,80 @@ import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 
-function createPng(width, height, r, g, b) {
-  // Construct a solid colored PNG with RGBA using standard Node zlib
+function createNotebookPng(width, height) {
   const rowSize = width * 4;
   const rawData = Buffer.alloc(height * (1 + rowSize));
 
+  // Colors
+  const bgR = 15, bgG = 23, bgB = 42;          // #0f172a Slate 900
+  const pageR = 250, pageG = 250, pageB = 250; // White paper
+  const gridR = 186, gridG = 230, gridB = 253; // #bae6fd Light sky blue grid
+  const marginR = 239, marginG = 68, marginB = 68; // #ef4444 Red margin line
+  const spiralR = 148, spiralG = 163, spiralB = 184; // Spiral ring silver
+
+  // Pad margins for notebook page
+  const padX = Math.round(width * 0.16);
+  const padY = Math.round(height * 0.12);
+  const pageW = width - padX * 2;
+  const pageH = height - padY * 2;
+  const marginX = padX + Math.round(pageW * 0.22);
+  const spiralX = padX + Math.round(pageW * 0.08);
+
+  const cellSize = Math.max(4, Math.round(width / 24));
+
   for (let y = 0; y < height; y++) {
     const rowOffset = y * (1 + rowSize);
-    rawData[rowOffset] = 0; // Filter byte: 0 (None)
+    rawData[rowOffset] = 0; // Filter byte
+
     for (let x = 0; x < width; x++) {
       const pixelOffset = rowOffset + 1 + x * 4;
-      // Slight gradient
-      const factor = (y / height) * 0.4 + 0.8;
-      rawData[pixelOffset] = Math.min(255, Math.floor(r * factor));
-      rawData[pixelOffset + 1] = Math.min(255, Math.floor(g * factor));
-      rawData[pixelOffset + 2] = Math.min(255, Math.floor(b * factor));
-      rawData[pixelOffset + 3] = 255;
+
+      // Inside notebook page?
+      const inPage = x >= padX && x <= (padX + pageW) && y >= padY && y <= (padY + pageH);
+
+      if (inPage) {
+        // Red vertical margin line
+        if (x === marginX || x === marginX + 1) {
+          rawData[pixelOffset] = marginR;
+          rawData[pixelOffset + 1] = marginG;
+          rawData[pixelOffset + 2] = marginB;
+          rawData[pixelOffset + 3] = 255;
+          continue;
+        }
+
+        // Spiral binder holes
+        if (Math.abs(x - spiralX) <= 2 && (y % Math.round(height / 7) <= 3)) {
+          rawData[pixelOffset] = spiralR;
+          rawData[pixelOffset + 1] = spiralG;
+          rawData[pixelOffset + 2] = spiralB;
+          rawData[pixelOffset + 3] = 255;
+          continue;
+        }
+
+        // Math grid lines (every cellSize pixels)
+        const isGridX = (x - padX) % cellSize === 0;
+        const isGridY = (y - padY) % cellSize === 0;
+
+        if (isGridX || isGridY) {
+          rawData[pixelOffset] = gridR;
+          rawData[pixelOffset + 1] = gridG;
+          rawData[pixelOffset + 2] = gridB;
+          rawData[pixelOffset + 3] = 255;
+        } else {
+          // White paper surface
+          rawData[pixelOffset] = pageR;
+          rawData[pixelOffset + 1] = pageG;
+          rawData[pixelOffset + 2] = pageB;
+          rawData[pixelOffset + 3] = 255;
+        }
+      } else {
+        // Outer dark gradient background
+        const grad = (y / height) * 20;
+        rawData[pixelOffset] = Math.min(255, bgR + grad);
+        rawData[pixelOffset + 1] = Math.min(255, bgG + grad);
+        rawData[pixelOffset + 2] = Math.min(255, bgB + grad + 15);
+        rawData[pixelOffset + 3] = 255;
+      }
     }
   }
 
@@ -54,11 +112,11 @@ function createPng(width, height, r, g, b) {
   const ihdrData = Buffer.alloc(13);
   ihdrData.writeUInt32BE(width, 0);
   ihdrData.writeUInt32BE(height, 4);
-  ihdrData.writeUInt8(8, 8); // bit depth
+  ihdrData.writeUInt8(8, 8); // 8-bit depth
   ihdrData.writeUInt8(6, 9); // RGBA
-  ihdrData.writeUInt8(0, 10); // compression
-  ihdrData.writeUInt8(0, 11); // filter
-  ihdrData.writeUInt8(0, 12); // interlace
+  ihdrData.writeUInt8(0, 10);
+  ihdrData.writeUInt8(0, 11);
+  ihdrData.writeUInt8(0, 12);
 
   const ihdrChunk = makeChunk('IHDR', ihdrData);
   const idatChunk = makeChunk('IDAT', compressed);
@@ -70,13 +128,13 @@ function createPng(width, height, r, g, b) {
 const pubDir = path.resolve('public');
 if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
 
-const indigoPng192 = createPng(192, 192, 79, 70, 229);
-const indigoPng512 = createPng(512, 512, 79, 70, 229);
+const png192 = createNotebookPng(192, 192);
+const png512 = createNotebookPng(512, 512);
 
-fs.writeFileSync(path.join(pubDir, 'pwa-192x192.png'), indigoPng192);
-fs.writeFileSync(path.join(pubDir, 'pwa-512x512.png'), indigoPng512);
-fs.writeFileSync(path.join(pubDir, 'pwa-maskable-512x512.png'), indigoPng512);
-fs.writeFileSync(path.join(pubDir, 'apple-touch-icon.png'), indigoPng192);
-fs.writeFileSync(path.join(pubDir, 'favicon.ico'), indigoPng192);
+fs.writeFileSync(path.join(pubDir, 'pwa-192x192.png'), png192);
+fs.writeFileSync(path.join(pubDir, 'pwa-512x512.png'), png512);
+fs.writeFileSync(path.join(pubDir, 'pwa-maskable-512x512.png'), png512);
+fs.writeFileSync(path.join(pubDir, 'apple-touch-icon.png'), png192);
+fs.writeFileSync(path.join(pubDir, 'favicon.ico'), png192);
 
-console.log('PWA PNG assets successfully generated in /public');
+console.log('Notebook graph paper PWA icons successfully generated in /public');

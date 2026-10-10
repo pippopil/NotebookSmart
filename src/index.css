@@ -62,3 +62,70 @@
 .safe-top {
   padding-top: max(12px, env(safe-area-inset-top, 12px));
 }
+
+/* 📐 ОФОРМЛЕНИЕ В ВИДЕ ТЕТРАДИ В КЛЕТОЧКУ (Graph Paper Notebook) */
+
+/* 1. Светлая классическая школьная тетрадь в клеточку (5 мм) */
+.notebook-grid-light {
+  background-color: #fafbfc;
+  color: #1e293b;
+  background-image:
+    linear-gradient(to right, rgba(147, 197, 253, 0.45) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(147, 197, 253, 0.45) 1px, transparent 1px);
+  background-size: 20px 20px;
+  background-position: 0 0;
+}
+
+/* 2. Темная тетрадь в клеточку (Dark Blueprint / Cyber Notebook) */
+.notebook-grid-dark {
+  background-color: #0b1120;
+  color: #f1f5f9;
+  background-image:
+    linear-gradient(to right, rgba(56, 189, 248, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(56, 189, 248, 0.12) 1px, transparent 1px);
+  background-size: 20px 20px;
+  background-position: 0 0;
+}
+
+/* 3. Тетрадь в линейку */
+.notebook-lines {
+  background-color: #fafbfc;
+  color: #1e293b;
+  background-image: linear-gradient(to bottom, rgba(147, 197, 253, 0.5) 1px, transparent 1px);
+  background-size: 100% 24px;
+}
+
+/* Красные поля школьной тетради (Red vertical margin line) */
+.notebook-margin-red {
+  position: relative;
+}
+.notebook-margin-red::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 48px;
+  width: 2px;
+  background-color: rgba(239, 68, 68, 0.7);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Спираль тетради (Spiral binder rings on the edge) */
+.notebook-spiral-border {
+  border-left: 12px solid #e2e8f0;
+  box-shadow: inset 4px 0 6px -2px rgba(0, 0, 0, 0.15);
+}
+
+.dark .notebook-spiral-border {
+  border-left: 12px solid #1e293b;
+  box-shadow: inset 4px 0 6px -2px rgba(0, 0, 0, 0.5);
+}
+
+/* Тень разворота тетради */
+.notebook-page-shadow {
+  box-shadow:
+    0 10px 25px -5px rgba(0, 0, 0, 0.3),
+    0 8px 10px -6px rgba(0, 0, 0, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}

@@ -23,10 +23,12 @@ import { NoteCard } from './components/NoteCard';
 import { NoteEditor } from './components/NoteEditor';
 import { ShoppingView } from './components/ShoppingView';
 import { CalculatorView } from './components/CalculatorView';
+import { EventsView } from './components/EventsView';
 import { SyncAndGitHubModal } from './components/SyncAndGitHubModal';
 import { ChangelogModal } from './components/ChangelogModal';
 import { APP_VERSION } from './version';
 import { extractShoppingItems } from './utils/shoppingParser';
+import { NoteCategory } from './types';
 import {
   Plus,
   Search,
@@ -34,13 +36,14 @@ import {
   FileText,
   Calculator,
   ShoppingCart,
+  Calendar,
   Sparkles,
   WifiOff,
 } from 'lucide-react';
 
 export default function App() {
   const [notes, setNotes] = useState<Note[]>(() => loadNotes());
-  const [activeTab, setActiveTab] = useState<'notes' | 'shopping' | 'calc' | 'sync'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'shopping' | 'events' | 'calc' | 'sync'>('notes');
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -104,6 +107,7 @@ export default function App() {
   }, [roomCode]);
 
   // Count pending shopping items
+  // Count pending shopping items
   const pendingShoppingCount = useMemo(() => {
     let pending = 0;
     notes.forEach((n) => {
@@ -113,12 +117,27 @@ export default function App() {
     return pending;
   }, [notes]);
 
+  // Count upcoming events
+  const upcomingEventsCount = useMemo(() => {
+    return notes.filter((n) => n.category === 'event' && !n.isEventDone).length;
+  }, [notes]);
+
   // Filter notes
   const filteredNotes = useMemo(() => {
     return notes.filter((n) => {
       // Category filter
-      if (activeCategoryFilter !== 'all' && n.category !== activeCategoryFilter) {
-        return false;
+      if (activeCategoryFilter !== 'all') {
+        if (activeCategoryFilter === 'note') {
+          if (n.category !== 'note' && n.category !== 'general') return false;
+        } else if (activeCategoryFilter === 'shopping') {
+          if (n.category !== 'shopping' && (n.shoppingItemsCount || 0) === 0) return false;
+        } else if (activeCategoryFilter === 'event') {
+          if (n.category !== 'event') return false;
+        } else if (activeCategoryFilter === 'payment') {
+          if (n.category !== 'payment' && (n.cachedTotal || 0) === 0) return false;
+        } else if (n.category !== activeCategoryFilter) {
+          return false;
+        }
       }
       // Search query filter
       if (searchQuery.trim()) {
@@ -142,21 +161,39 @@ export default function App() {
   };
 
   // Handlers
-  const handleCreateNewNote = (category: 'payment' | 'shopping' | 'general' | 'budget' = 'general') => {
+  const handleCreateNewNote = (
+    category: NoteCategory = 'note',
+    defaultTitle?: string,
+    eventDate?: string,
+    eventTime?: string
+  ) => {
     triggerHaptic();
     const newNote: Note = {
       id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      title: '',
+      title: defaultTitle || '',
       content:
-        category === 'payment'
+        category === 'shopping'
+          ? `Список покупок в тетради:\n- [ ] Молоко 3.2% 1 л\n- [ ] Хлеб 1 шт\n- [ ] Сыр 300 г\n- [ ] Яйца 10 шт`
+          : category === 'event'
+          ? `План события:\n14:00 — Встреча\nКофе-брейк: 350 * 3\nПодготовить материалы`
+          : category === 'payment'
           ? `Счета к оплате:\nАренда: 35000 руб\nКоммуналка: 2400 + 850\nИнтернет: 800\n\nИтого:`
-          : category === 'shopping'
-          ? `Список покупок:\n- [ ] Молоко 3.2% 1 л\n- [ ] Хлеб 1 шт\n- [ ] Сыр 300 г\n- [ ] Яйца 10 шт`
           : '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
       category,
-      color: category === 'payment' ? '#3b82f6' : category === 'shopping' ? '#10b981' : '#6366f1',
+      eventDate: eventDate || (category === 'event' ? new Date().toISOString().slice(0, 10) : undefined),
+      eventTime: eventTime || (category === 'event' ? '14:00' : undefined),
+      isEventDone: false,
+      paperStyle: 'grid',
+      color:
+        category === 'note'
+          ? '#3b82f6'
+          : category === 'shopping'
+          ? '#10b981'
+          : category === 'event'
+          ? '#8b5cf6'
+          : '#6366f1',
       isPinned: false,
       tags: [],
     };
@@ -165,6 +202,15 @@ export default function App() {
     setNotes((prev) => [enriched, ...prev]);
     setSelectedNote(enriched);
     syncNoteToRemote(roomCode, enriched);
+  };
+
+  const handleToggleEventDone = (eventNote: Note) => {
+    const updated: Note = {
+      ...eventNote,
+      isEventDone: !eventNote.isEventDone,
+      updatedAt: Date.now(),
+    };
+    handleUpdateNote(updated);
   };
 
   const handleUpdateNote = (updated: Note) => {
@@ -215,14 +261,14 @@ export default function App() {
         {/* TAB 1: NOTES LIST */}
         {activeTab === 'notes' && (
           <div className="pb-24">
-            {/* Category Filter Chips */}
+            {/* Category Filter Chips (РАЗДЕЛЬНЫЙ ВЫБОР) */}
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none mb-3">
               {[
-                { id: 'all', label: 'Все заметки' },
-                { id: 'payment', label: '💸 Оплаты' },
+                { id: 'all', label: 'Все записи' },
+                { id: 'note', label: '📝 Просто заметки' },
                 { id: 'shopping', label: '🛒 Покупки' },
-                { id: 'budget', label: '📊 Бюджет' },
-                { id: 'general', label: '📝 Общее' },
+                { id: 'event', label: '📅 События' },
+                { id: 'payment', label: '🧮 Оплаты' },
               ].map((c) => (
                 <button
                   key={c.id}
@@ -248,20 +294,36 @@ export default function App() {
                   <FileText className="w-7 h-7" />
                 </div>
                 <h3 className="text-base font-bold text-white mb-1">
-                  {searchQuery ? 'Ничего не найдено' : 'Пока нет заметок'}
+                  {searchQuery ? 'Ничего не найдено' : 'Пока нет записей'}
                 </h3>
                 <p className="text-xs text-slate-400 max-w-xs mx-auto mb-5">
                   {searchQuery
                     ? 'Попробуйте изменить поисковый запрос'
-                    : 'Создайте умную заметку для подсчета расходов или списка покупок'}
+                    : 'Создайте страницу в тетради: заметку, список покупок или событие'}
                 </p>
-                <button
-                  onClick={() => handleCreateNewNote('payment')}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md transition active:scale-95"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Создать первую заметку</span>
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    onClick={() => handleCreateNewNote('note')}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md transition active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Просто заметка</span>
+                  </button>
+                  <button
+                    onClick={() => handleCreateNewNote('shopping')}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Покупки</span>
+                  </button>
+                  <button
+                    onClick={() => handleCreateNewNote('event')}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-md transition active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Событие</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -283,12 +345,22 @@ export default function App() {
         {activeTab === 'shopping' && (
           <ShoppingView
             note={shoppingTargetNote}
-            allNotes={notes.filter((n) => (n.shoppingItemsCount || 0) > 0)}
+            allNotes={notes.filter((n) => n.category === 'shopping' || (n.shoppingItemsCount || 0) > 0)}
             onUpdateNote={handleUpdateNote}
           />
         )}
 
-        {/* TAB 3: PAYMENTS & CALCULATOR */}
+        {/* TAB 3: EVENTS & CALENDAR */}
+        {activeTab === 'events' && (
+          <EventsView
+            notes={notes}
+            onOpenNote={(n) => setSelectedNote(n)}
+            onCreateEvent={(title, date, time) => handleCreateNewNote('event', title, date, time)}
+            onToggleEventDone={handleToggleEventDone}
+          />
+        )}
+
+        {/* TAB 4: PAYMENTS & CALCULATOR */}
         {activeTab === 'calc' && (
           <CalculatorView
             notes={notes}
@@ -297,7 +369,7 @@ export default function App() {
           />
         )}
 
-        {/* TAB 4: SYNC & GITHUB */}
+        {/* TAB 5: SYNC & GITHUB */}
         {activeTab === 'sync' && (
           <SyncAndGitHubModal
             syncStatus={syncStatus}
@@ -337,8 +409,9 @@ export default function App() {
           }
           setActiveTab(tab);
         }}
-        onNewNote={() => handleCreateNewNote('general')}
+        onNewNote={(cat) => handleCreateNewNote(cat)}
         pendingShoppingCount={pendingShoppingCount}
+        upcomingEventsCount={upcomingEventsCount}
       />
 
       {/* Release Notes / Changelog Modal */}
