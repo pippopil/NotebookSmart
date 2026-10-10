@@ -24,6 +24,8 @@ import { NoteEditor } from './components/NoteEditor';
 import { ShoppingView } from './components/ShoppingView';
 import { CalculatorView } from './components/CalculatorView';
 import { SyncAndGitHubModal } from './components/SyncAndGitHubModal';
+import { ChangelogModal } from './components/ChangelogModal';
+import { APP_VERSION } from './version';
 import { extractShoppingItems } from './utils/shoppingParser';
 import {
   Plus,
@@ -43,6 +45,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [shoppingTargetNote, setShoppingTargetNote] = useState<Note | null>(null);
+  const [isChangelogOpen, setIsChangelogOpen] = useState<boolean>(false);
 
   const isOnline = useOnlineStatus();
   const roomCode = getSyncRoomCode();
@@ -202,6 +205,7 @@ export default function App() {
         syncStatus={syncStatus}
         isOnline={isOnline}
         onOpenSync={() => setActiveTab('sync')}
+        onOpenChangelog={() => setIsChangelogOpen(true)}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
@@ -335,6 +339,12 @@ export default function App() {
         }}
         onNewNote={() => handleCreateNewNote('general')}
         pendingShoppingCount={pendingShoppingCount}
+      />
+
+      {/* Release Notes / Changelog Modal */}
+      <ChangelogModal
+        isOpen={isChangelogOpen}
+        onClose={() => setIsChangelogOpen(false)}
       />
     </div>
   );

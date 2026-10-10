@@ -21,7 +21,11 @@ import {
   Code,
   Layers,
   Terminal,
+  Sparkles,
+  Calendar,
+  Zap,
 } from 'lucide-react';
+import { RELEASES_HISTORY, APP_VERSION } from '../version';
 
 interface SyncAndGitHubModalProps {
   syncStatus: SyncStatus;
@@ -38,7 +42,7 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
   onRefreshSync,
   onClose,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'sync' | 'github' | 'backup'>('sync');
+  const [activeSubTab, setActiveSubTab] = useState<'sync' | 'github' | 'releases' | 'backup'>('sync');
   const [roomCode, setRoomCode] = useState<string>(getSyncRoomCode());
   const [copiedCode, setCopiedCode] = useState(false);
   const [firebaseProject, setFirebaseProject] = useState(
@@ -167,6 +171,16 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
             }`}
           >
             🚀 GitHub Actions & Android
+          </button>
+          <button
+            onClick={() => setActiveSubTab('releases')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+              activeSubTab === 'releases'
+                ? 'bg-indigo-600 text-white'
+                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            📋 Релизы & Чейнджлог
           </button>
           <button
             onClick={() => setActiveSubTab('backup')}
@@ -374,6 +388,102 @@ jobs:
                 <li>Нажмите <strong>Run workflow</strong> или сделайте коммит в ветку.</li>
                 <li>В конце сборки во вкладке <strong>Artifacts</strong> будет доступен готовый архив!</li>
               </ol>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB: RELEASES & CHANGELOG */}
+      {activeSubTab === 'releases' && (
+        <div className="space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-indigo-400" />
+                  <h3 className="font-bold text-base text-white">
+                    Постоянно обновляемые релизы
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-indigo-600/30 text-indigo-300 font-mono text-xs font-bold border border-indigo-500/30">
+                    v{APP_VERSION}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Каждый релиз содержит номер версии, дату и подробное описание изменений
+                </p>
+              </div>
+
+              <a
+                href="https://github.com/pippopil/NotebookSmart/releases"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
+              >
+                <Github className="w-3.5 h-3.5" />
+                <span>Релизы на GitHub</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
+            <div className="space-y-4">
+              {RELEASES_HISTORY.map((rel) => (
+                <div
+                  key={rel.version}
+                  className={`p-4 rounded-2xl border transition ${
+                    rel.isLatest
+                      ? 'bg-slate-950 border-indigo-500/40'
+                      : 'bg-slate-950/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-base text-white">
+                        v{rel.version}
+                      </span>
+                      {rel.isLatest && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">
+                          Текущий релиз
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-slate-400 flex items-center gap-1 font-mono">
+                      <Calendar className="w-3 h-3" />
+                      {rel.releaseDate}
+                    </span>
+                  </div>
+
+                  <h4 className="text-sm font-semibold text-indigo-300 mb-2">
+                    {rel.title}
+                  </h4>
+
+                  {/* Highlights */}
+                  <div className="space-y-1 mb-3">
+                    {rel.highlights.map((h, i) => (
+                      <div key={i} className="flex items-start gap-1.5 text-xs text-slate-200">
+                        <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <span>{h}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Categories */}
+                  <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                    {rel.categories.map((cat, idx) => (
+                      <div key={idx} className="text-xs">
+                        <span className="font-medium text-slate-300 block mb-1">{cat.name}:</span>
+                        <ul className="space-y-0.5 pl-2 text-slate-400">
+                          {cat.items.map((it, itemIdx) => (
+                            <li key={itemIdx} className="flex items-start gap-1.5">
+                              <span className="text-indigo-400 font-bold">•</span>
+                              <span>{it}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

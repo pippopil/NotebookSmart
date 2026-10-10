@@ -7,6 +7,7 @@ interface HeaderProps {
   syncStatus: SyncStatus;
   isOnline: boolean;
   onOpenSync: () => void;
+  onOpenChangelog?: () => void;
   onOpenSearch?: () => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
@@ -16,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   syncStatus,
   isOnline,
   onOpenSync,
+  onOpenChangelog,
   searchQuery,
   onSearchChange,
 }) => {
@@ -32,9 +34,14 @@ export const Header: React.FC<HeaderProps> = ({
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-bold text-base tracking-tight text-white">NotebookSmart</span>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                PWA • AI
-              </span>
+              <button
+                onClick={onOpenChangelog}
+                className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition active:scale-95 cursor-pointer flex items-center gap-1"
+                title="Что нового? История версий"
+              >
+                <span>v1.2.0</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              </button>
             </div>
             <p className="text-[11px] text-slate-400 leading-none mt-0.5">
               Умные оплаты & Покупки
