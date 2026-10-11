@@ -376,17 +376,41 @@ jobs:
               </pre>
             </div>
 
-            {/* Quick steps */}
-            <div className="mt-4 pt-4 border-t border-slate-800 space-y-2 text-xs text-slate-300">
+            {/* Quick steps & APK Download */}
+            <div className="mt-4 pt-4 border-t border-slate-800 space-y-3 text-xs text-slate-300">
+              <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div>
+                  <h5 className="font-bold text-white text-xs flex items-center gap-1.5">
+                    <span>📦 Скачать готовый APK файл для Android</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 uppercase">
+                      Release APK
+                    </span>
+                  </h5>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Файл APK автоматически собирается Gradle в GitHub Actions и прикрепляется к каждому релизу
+                  </p>
+                </div>
+
+                <a
+                  href="https://github.com/pippopil/NotebookSmart/releases/latest"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition active:scale-95 shadow flex items-center gap-1 shrink-0 self-start sm:self-auto"
+                >
+                  <span>Скачать APK</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
               <h4 className="font-semibold text-white flex items-center gap-1.5">
                 <Layers className="w-4 h-4 text-cyan-400" />
-                <span>Как запустить сборку в репозитории:</span>
+                <span>Как устроена сборка в репозитории:</span>
               </h4>
               <ol className="list-decimal list-inside space-y-1 text-slate-400 pl-1">
                 <li>Откройте вкладку <strong>Actions</strong> в <a href="https://github.com/pippopil/NotebookSmart/actions" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline">pippopil/NotebookSmart</a>.</li>
-                <li>Выберите workflow <strong>Build NotebookSmart Android & PWA</strong>.</li>
-                <li>Нажмите <strong>Run workflow</strong> или сделайте коммит в ветку.</li>
-                <li>В конце сборки во вкладке <strong>Artifacts</strong> будет доступен готовый архив!</li>
+                <li>При каждом коммите запускается <strong>Build NotebookSmart Android APK & PWA</strong>.</li>
+                <li>Gradle компилирует <strong>NotebookSmart-debug.apk</strong> и загружает его в раздел <strong>Artifacts</strong>.</li>
+                <li>При публикации тегов и релизов workflow <strong>Automatic GitHub Release with Android APK</strong> автоматически создает релиз с прикрепленным файлом <code>.apk</code>!</li>
               </ol>
             </div>
           </div>

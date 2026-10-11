@@ -1,4 +1,4 @@
-name: Build NotebookSmart Android & PWA
+name: Build NotebookSmart Android APK & PWA
 
 on:
   push:
@@ -8,34 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-web-and-pwa:
-    name: Build PWA & Web Bundle
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22.x
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install Dependencies
-        run: npm install --legacy-peer-deps
-
-      - name: Build Production PWA Assets
-        run: npm run build
-
-      - name: Upload PWA Web Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: notebook-smart-pwa-dist
-          path: dist/
-          retention-days: 14
-
-  build-android-apk:
-    name: Build Android Bundle & Assets
-    needs: build-web-and-pwa
+  build-pwa-and-apk:
+    name: Build PWA Web & Android APK
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -52,26 +26,37 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install Dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Build Web App
+      - name: Build Web & PWA
         run: npm run build
 
-      - name: Prepare Capacitor Android Native Structure
-        run: |
-          npm install --save-dev @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
-          npx cap --version
-          npx cap sync android || echo "Capacitor structure generated successfully"
-
-      - name: Archive Android Package
-        run: |
-          sudo apt-get update && sudo apt-get install -y zip
-          zip -r notebook-smart-android-assets.zip dist/ capacitor.config.json
-
-      - name: Upload Android Release Package
+      - name: Upload PWA Web Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: notebook-smart-android-package
-          path: notebook-smart-android-assets.zip
+          name: notebook-smart-pwa-dist
+          path: dist/
           retention-days: 14
+
+      - name: Sync Capacitor Android
+        run: |
+          npx cap sync android
+
+      - name: Build Android APK with Gradle
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+          cd ..
+          cp android/app/build/outputs/apk/debug/app-debug.apk ./NotebookSmart-debug.apk
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NotebookSmart-debug-apk
+          path: NotebookSmart-debug.apk
+          retention-days: 30

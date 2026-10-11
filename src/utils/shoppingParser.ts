@@ -26,6 +26,51 @@ const CATEGORY_AVG_PRICES: Record<ShoppingCategory, number> = {
   other: 150,
 };
 
+export const CATEGORY_META: Record<ShoppingCategory, { label: string; icon: string }> = {
+  dairy: { label: 'Молочное и сыр', icon: '🥛' },
+  bakery: { label: 'Хлеб и выпечка', icon: '🍞' },
+  meat: { label: 'Мясо и рыба', icon: '🥩' },
+  produce: { label: 'Овощи и фрукты', icon: '🍎' },
+  grocery: { label: 'Бакалея и крупы', icon: '🌾' },
+  drinks: { label: 'Напитки, чай, кофе', icon: '🧃' },
+  sweets: { label: 'Сладости и снеки', icon: '🍫' },
+  household: { label: 'Бытовая химия и дом', icon: '🧼' },
+  other: { label: 'Другие товары', icon: '🛒' },
+};
+
+/**
+ * Returns direct product search URL for any supported store
+ */
+export function getItemStoreUrl(storeId: string, itemName: string): string {
+  const q = encodeURIComponent(itemName);
+  switch (storeId) {
+    case 'wb':
+      return `https://www.wildberries.ru/catalog/0/search.aspx?search=${q}`;
+    case 'ozon':
+      return `https://www.ozon.ru/search/?text=${q}`;
+    case 'yandex_market':
+      return `https://market.yandex.ru/search?text=${q}`;
+    case 'megamarket':
+      return `https://megamarket.ru/catalog/?q=${q}`;
+    case 'kuper':
+      return `https://kuper.ru/search?q=${q}`;
+    case 'samokat':
+      return `https://samokat.ru/search?text=${q}`;
+    case 'yandex_lavka':
+      return `https://lavka.yandex.ru/search?text=${q}`;
+    case 'vkusvill':
+      return `https://vkusvill.ru/search/?q=${q}`;
+    case 'pyaterochka':
+      return `https://5ka.ru/search?q=${q}`;
+    case 'vprok':
+      return `https://www.vprok.ru/search?text=${q}`;
+    case 'magnit':
+      return `https://magnit.ru/search/?q=${q}`;
+    default:
+      return `https://market.yandex.ru/search?text=${q}`;
+  }
+}
+
 export const STORE_OPTIONS: StoreOption[] = [
   // Маркетплейсы
   {

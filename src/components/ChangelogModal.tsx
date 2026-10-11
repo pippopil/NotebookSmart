@@ -197,18 +197,29 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ isOpen, onClose 
           })}
         </div>
 
-        {/* Footer with GitHub Releases link */}
-        <div className="px-5 py-3.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-3 shrink-0">
-          <a
-            href="https://github.com/pippopil/NotebookSmart/releases"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition"
-          >
-            <Github className="w-3.5 h-3.5" />
-            <span>Все релизы на GitHub</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
+        {/* Footer with GitHub Releases link & APK Download */}
+        <div className="px-5 py-3.5 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <a
+              href="https://github.com/pippopil/NotebookSmart/releases/latest"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm transition active:scale-95"
+            >
+              <span>📦 Скачать APK (Android)</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+
+            <a
+              href="https://github.com/pippopil/NotebookSmart/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition hidden sm:inline-flex"
+            >
+              <Github className="w-3.5 h-3.5" />
+              <span>Релизы на GitHub</span>
+            </a>
+          </div>
 
           <button
             onClick={onClose}
