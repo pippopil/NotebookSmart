@@ -5,6 +5,17 @@
 
 ---
 
+## [v1.3.4] — 11 октября 2026
+
+### 🛠️ Исправление падения сборки Android APK в GitHub Actions
+- **Устранение критической ошибки CI**:
+  - Исключен сторонний action `android-actions/setup-android@v3`, завершавшийся аварийно ошибкой `Failed to find package 'tools', exit code 1` из-за вызова устаревшего пакета `tools` в `sdkmanager` на новых ранерах Ubuntu с Node 24.
+  - Настроено использование встроенного Android SDK раннера GitHub Actions (`$ANDROID_HOME`), предустановленного в образах `ubuntu-latest`.
+  - Добавлено автоматическое принятие лицензий Android SDK через `sdkmanager --licenses`.
+  - В `android/app/build.gradle` настроена гарантированная подпись `signingConfigs.debug` для удобной прямой установки APK на любые смартфоны Android без ошибок сертификата.
+
+---
+
 ## [v1.3.3] — 11 октября 2026
 
 ### 📦 Сборка Android APK в релизе

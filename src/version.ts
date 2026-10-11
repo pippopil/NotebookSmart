@@ -11,15 +11,38 @@ export interface ReleaseNote {
   }[];
 }
 
-export const APP_VERSION = '1.3.3';
-export const APP_BUILD = 133;
+export const APP_VERSION = '1.3.4';
+export const APP_BUILD = 134;
 export const APP_RELEASE_DATE = '11 октября 2026';
 
 export const RELEASES_HISTORY: ReleaseNote[] = [
   {
-    version: '1.3.3',
+    version: '1.3.4',
     releaseDate: '11 октября 2026',
     isLatest: true,
+    title: 'Исправление сбоя сборки Android APK в GitHub Actions и стабильный релиз',
+    highlights: [
+      'Устранена фатальная ошибка GitHub Actions («Warning: Failed to find package tools, exit code 1») в шаге Setup Android SDK',
+      'Переход на нативный Android SDK раннеров GitHub Actions с автоматическим принятием лицензий',
+      'Автоматическая публикация NotebookSmart-v1.3.4.apk в релизах и архива PWA с актуальными хешами',
+      'Защищенная конфигурация подписи Gradle assembleDebug/assembleRelease для гарантированной установки на устройства',
+    ],
+    categories: [
+      {
+        name: '🤖 CI/CD и сборка Android APK',
+        icon: 'Smartphone',
+        items: [
+          'Удален устаревший вызов android-actions/setup-android@v3, вызывавший падение sdkmanager tools на Node 24/Ubuntu runner',
+          'Оптимизирован рабочий процесс release.yml с автопринятием Android лицензий и сборкой Gradle assembleDebug',
+          'Прямое прикрепление NotebookSmart-v1.3.4.apk в GitHub Releases с поддержкой прямого скачивания на смартфон',
+        ],
+      },
+    ],
+  },
+  {
+    version: '1.3.3',
+    releaseDate: '11 октября 2026',
+    isLatest: false,
     title: 'Сборка APK в релизах, геолокация магазинов и показ товаров в магазинах',
     highlights: [
       'Автоматическая компиляция установочного APK файла для Android в GitHub Releases и CI artifacts',

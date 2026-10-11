@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Номер релиза (например: v1.3.3)'
+        description: 'Номер релиза (например: v1.3.4)'
         required: true
-        default: 'v1.3.3'
+        default: 'v1.3.4'
 
 permissions:
   contents: write
@@ -34,9 +34,11 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || yes | sdkmanager --licenses 2>/dev/null || true
 
       - name: Install Dependencies
         run: npm install --legacy-peer-deps
@@ -78,6 +80,7 @@ jobs:
           body_path: CHANGELOG.md
           draft: false
           prerelease: false
+          fail_on_unmatched_files: false
           files: |
             NotebookSmart-${{ steps.vars.outputs.tag }}.apk
             notebook-smart-pwa-${{ steps.vars.outputs.tag }}.zip
