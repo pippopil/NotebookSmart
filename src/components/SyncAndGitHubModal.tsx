@@ -20,7 +20,6 @@ import {
   ExternalLink,
   Code,
   Layers,
-  Terminal,
   Sparkles,
   Calendar,
   Zap,
@@ -36,11 +35,11 @@ interface SyncAndGitHubModalProps {
 }
 
 export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
-  syncStatus,
+  syncStatus: _syncStatus,
   notes,
   onImportNotes,
   onRefreshSync,
-  onClose,
+  onClose: _onClose,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'sync' | 'github' | 'releases' | 'backup'>('sync');
   const [roomCode, setRoomCode] = useState<string>(getSyncRoomCode());
@@ -117,23 +116,23 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
   // SVG QR Code generator representation
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
     pairingUrl
-  )}&color=ffffff&bgcolor=090d16`;
+  )}&color=1c1917&bgcolor=ffffff`;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-4 pb-28">
+    <div className="max-w-4xl mx-auto px-4 py-4 pb-28 text-stone-900 dark:text-stone-100">
       {/* Top Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 mb-5 shadow-lg">
+      <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 mb-5 shadow-sm transition-colors">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="p-1.5 rounded-xl bg-indigo-500/20 text-indigo-400">
+              <span className="p-1.5 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400">
                 <Cloud className="w-5 h-5" />
               </span>
-              <h2 className="text-xl font-bold text-white tracking-tight">
+              <h2 className="text-xl font-bold text-stone-900 dark:text-white tracking-tight">
                 Синхронизация & GitHub Actions
               </h2>
             </div>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-stone-600 dark:text-stone-400">
               Синхронизация заметок через Firebase и сборка Android/PWA для pippopil/NotebookSmart
             </p>
           </div>
@@ -142,52 +141,52 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
             href="https://github.com/pippopil/NotebookSmart"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition active:scale-95 shrink-0"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-50 dark:bg-stone-800 hover:bg-amber-100/80 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 border border-amber-200/80 dark:border-stone-700 text-xs font-semibold transition active:scale-95 shrink-0"
           >
-            <Github className="w-4 h-4" />
+            <Github className="w-4 h-4 text-stone-900 dark:text-white" />
             <span>pippopil/NotebookSmart</span>
-            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            <ExternalLink className="w-3.5 h-3.5 text-stone-400" />
           </a>
         </div>
 
         {/* Tab switch */}
-        <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-800">
+        <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-amber-900/10 dark:border-stone-800">
           <button
             onClick={() => setActiveSubTab('sync')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
               activeSubTab === 'sync'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-stone-100 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
             }`}
           >
             ☁️ Firebase & Мульти-девайс
           </button>
           <button
             onClick={() => setActiveSubTab('github')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
               activeSubTab === 'github'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-stone-100 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
             }`}
           >
             🚀 GitHub Actions & Android
           </button>
           <button
             onClick={() => setActiveSubTab('releases')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
               activeSubTab === 'releases'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-stone-100 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
             }`}
           >
             📋 Релизы & Чейнджлог
           </button>
           <button
             onClick={() => setActiveSubTab('backup')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
               activeSubTab === 'backup'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-stone-100 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
             }`}
           >
             💾 Резервная копия (JSON)
@@ -199,25 +198,25 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
       {activeSubTab === 'sync' && (
         <div className="space-y-5">
           {/* Room pairing card */}
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-            <h3 className="font-bold text-base text-white mb-2 flex items-center gap-2">
-              <Smartphone className="w-4 h-4 text-indigo-400" />
+          <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 shadow-sm">
+            <h3 className="font-bold text-base text-stone-900 dark:text-white mb-2 flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               <span>Быстрая связь устройств (Код комнаты)</span>
             </h3>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-stone-600 dark:text-stone-400 mb-4">
               Откройте NotebookSmart на телефоне, планшете или ноутбуке с этим кодом — все заметки и списки покупок синхронизируются мгновенно!
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center gap-5 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+            <div className="flex flex-col sm:flex-row items-center gap-5 bg-amber-50/50 dark:bg-stone-950 p-4 rounded-2xl border border-amber-200/60 dark:border-stone-800">
               {/* QR Code */}
-              <div className="p-2 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col items-center shrink-0">
+              <div className="p-2.5 bg-white rounded-2xl border border-stone-200 shadow-xs flex flex-col items-center shrink-0">
                 <img
                   src={qrCodeUrl}
                   alt="QR код для синхронизации"
                   className="w-36 h-36 rounded-lg"
                 />
-                <span className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                  <QrCode className="w-3 h-3" />
+                <span className="text-[10px] text-stone-600 mt-1.5 flex items-center gap-1 font-medium">
+                  <QrCode className="w-3 h-3 text-stone-500" />
                   Сканируйте камерой телефона
                 </span>
               </div>
@@ -225,7 +224,7 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
               {/* Room Code tools */}
               <div className="flex-1 w-full space-y-3">
                 <div>
-                  <label className="text-[11px] text-slate-400 block mb-1 font-medium">
+                  <label className="text-[11px] text-stone-600 dark:text-stone-400 block mb-1 font-medium">
                     Код синхронизации (Room ID):
                   </label>
                   <div className="flex items-center gap-2">
@@ -233,15 +232,15 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
                       type="text"
                       value={roomCode}
                       onChange={(e) => handleUpdateRoom(e.target.value)}
-                      className="bg-slate-900 text-indigo-300 font-mono text-base font-bold px-3 py-2 rounded-xl border border-slate-700 w-full focus:outline-none focus:border-indigo-500 uppercase"
+                      className="bg-white dark:bg-stone-900 text-amber-800 dark:text-amber-400 font-mono text-base font-bold px-3 py-2 rounded-xl border border-amber-300 dark:border-stone-700 w-full focus:outline-none focus:border-amber-500 uppercase shadow-xs"
                     />
                     <button
                       onClick={handleCopyRoom}
-                      className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition shrink-0"
+                      className="p-2.5 rounded-xl bg-amber-100 dark:bg-stone-800 hover:bg-amber-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 transition shrink-0 cursor-pointer"
                       title="Скопировать"
                     >
                       {copiedCode ? (
-                        <Check className="w-5 h-5 text-emerald-400" />
+                        <Check className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                       ) : (
                         <Copy className="w-5 h-5" />
                       )}
@@ -255,7 +254,7 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
                       const newCode = `ROOM-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                       handleUpdateRoom(newCode);
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-300 text-xs font-semibold border border-amber-200 dark:border-stone-700 transition cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                     <span>Сгенерировать новый код</span>
@@ -266,18 +265,18 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
           </div>
 
           {/* Firebase Custom Credentials configuration */}
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-            <h3 className="font-bold text-base text-white mb-2 flex items-center gap-2">
-              <Cloud className="w-4 h-4 text-emerald-400" />
+          <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 shadow-sm">
+            <h3 className="font-bold text-base text-stone-900 dark:text-white mb-2 flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <span>Параметры Firebase Firestore</span>
             </h3>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-stone-600 dark:text-stone-400 mb-4">
               Вы можете подключить свой проект Firebase (Firebase Console → Project Settings).
             </p>
 
             <div className="space-y-3">
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1">
+                <label className="text-[11px] text-stone-600 dark:text-stone-400 block mb-1">
                   Firebase Project ID:
                 </label>
                 <input
@@ -285,12 +284,12 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
                   value={firebaseProject}
                   onChange={(e) => setFirebaseProject(e.target.value)}
                   placeholder="e.g. notebook-smart-demo"
-                  className="w-full bg-slate-950 text-xs text-slate-200 px-3.5 py-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-stone-50 dark:bg-stone-950 text-xs text-stone-900 dark:text-stone-200 px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-none focus:border-amber-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1">
+                <label className="text-[11px] text-stone-600 dark:text-stone-400 block mb-1">
                   Firebase Web API Key:
                 </label>
                 <input
@@ -298,21 +297,21 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
                   value={firebaseApiKey}
                   onChange={(e) => setFirebaseApiKey(e.target.value)}
                   placeholder="e.g. AIzaSy..."
-                  className="w-full bg-slate-950 text-xs text-slate-200 px-3.5 py-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 font-mono"
+                  className="w-full bg-stone-50 dark:bg-stone-950 text-xs text-stone-900 dark:text-stone-200 px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-none focus:border-amber-500 font-mono"
                 />
               </div>
 
               <div className="flex items-center justify-between pt-2">
                 <button
                   onClick={handleSaveFirebase}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow transition active:scale-95"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-xs transition active:scale-95 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
                   <span>Сохранить и подключить</span>
                 </button>
 
                 {saveSuccess && (
-                  <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
                     <Check className="w-3.5 h-3.5" />
                     Настройки сохранены!
                   </span>
@@ -326,27 +325,27 @@ export const SyncAndGitHubModal: React.FC<SyncAndGitHubModalProps> = ({
       {/* SUBTAB 2: GITHUB ACTIONS & ANDROID BUILD */}
       {activeSubTab === 'github' && (
         <div className="space-y-5">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
+          <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 shadow-sm">
             <div className="flex items-center gap-2 mb-2">
-              <Github className="w-5 h-5 text-white" />
-              <h3 className="font-bold text-base text-white">
+              <Github className="w-5 h-5 text-stone-900 dark:text-white" />
+              <h3 className="font-bold text-base text-stone-900 dark:text-white">
                 GitHub Action: Автоматическая сборка для Android & PWA
               </h3>
             </div>
-            <p className="text-xs text-slate-400 mb-4 leading-relaxed">
-              В проекте уже настроен файл рабочего процесса <code>.github/workflows/android-build.yml</code>. При каждом пуше в ветку <code>main</code> репозитория <a href="https://github.com/pippopil/NotebookSmart" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline">https://github.com/pippopil/NotebookSmart</a> GitHub Actions автоматически собирает Android APK и PWA артефакты!
+            <p className="text-xs text-stone-600 dark:text-stone-400 mb-4 leading-relaxed">
+              В проекте уже настроен файл рабочего процесса <code>.github/workflows/android-build.yml</code>. При каждом пуше в ветку <code>main</code> репозитория <a href="https://github.com/pippopil/NotebookSmart" target="_blank" rel="noopener noreferrer" className="text-amber-600 dark:text-amber-400 underline font-medium">https://github.com/pippopil/NotebookSmart</a> GitHub Actions автоматически собирает Android APK и PWA артефакты!
             </p>
 
             {/* Workflow preview */}
-            <div className="bg-slate-950 rounded-2xl p-4 border border-slate-800 font-mono text-xs text-slate-300 overflow-x-auto">
-              <div className="flex items-center justify-between text-slate-500 mb-2 pb-2 border-b border-slate-800 text-[11px]">
+            <div className="bg-stone-900 dark:bg-stone-950 rounded-2xl p-4 border border-stone-800 font-mono text-xs text-stone-300 overflow-x-auto shadow-inner">
+              <div className="flex items-center justify-between text-stone-400 mb-2 pb-2 border-b border-stone-800 text-[11px]">
                 <span className="flex items-center gap-1">
-                  <Code className="w-3.5 h-3.5 text-indigo-400" />
+                  <Code className="w-3.5 h-3.5 text-amber-400" />
                   .github/workflows/android-build.yml
                 </span>
                 <span className="text-emerald-400">CI/CD Ready</span>
               </div>
-              <pre className="text-slate-300 leading-5">
+              <pre className="text-stone-300 leading-5">
 {`name: Build NotebookSmart Android & PWA
 on:
   push:
@@ -377,16 +376,16 @@ jobs:
             </div>
 
             {/* Quick steps & APK Download */}
-            <div className="mt-4 pt-4 border-t border-slate-800 space-y-3 text-xs text-slate-300">
-              <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="mt-4 pt-4 border-t border-amber-900/10 dark:border-stone-800 space-y-3 text-xs text-stone-700 dark:text-stone-300">
+              <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div>
-                  <h5 className="font-bold text-white text-xs flex items-center gap-1.5">
+                  <h5 className="font-bold text-stone-900 dark:text-white text-xs flex items-center gap-1.5">
                     <span>📦 Скачать готовый APK файл для Android</span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 uppercase">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 uppercase font-semibold">
                       Release APK
                     </span>
                   </h5>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-stone-600 dark:text-stone-400 mt-0.5">
                     Файл APK автоматически собирается Gradle в GitHub Actions и прикрепляется к каждому релизу
                   </p>
                 </div>
@@ -395,22 +394,22 @@ jobs:
                   href="https://github.com/pippopil/NotebookSmart/releases/latest"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition active:scale-95 shadow flex items-center gap-1 shrink-0 self-start sm:self-auto"
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition active:scale-95 shadow-xs flex items-center gap-1 shrink-0 self-start sm:self-auto"
                 >
                   <span>Скачать APK</span>
                   <ExternalLink className="w-3.5 h-3.5" />
                 </a>
               </div>
 
-              <h4 className="font-semibold text-white flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-cyan-400" />
+              <h4 className="font-semibold text-stone-900 dark:text-white flex items-center gap-1.5 pt-1">
+                <Layers className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                 <span>Как устроена сборка в репозитории:</span>
               </h4>
-              <ol className="list-decimal list-inside space-y-1 text-slate-400 pl-1">
-                <li>Откройте вкладку <strong>Actions</strong> в <a href="https://github.com/pippopil/NotebookSmart/actions" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline">pippopil/NotebookSmart</a>.</li>
+              <ol className="list-decimal list-inside space-y-1 text-stone-600 dark:text-stone-400 pl-1">
+                <li>Откройте вкладку <strong>Actions</strong> в <a href="https://github.com/pippopil/NotebookSmart/actions" target="_blank" rel="noopener noreferrer" className="text-amber-600 dark:text-amber-400 underline font-medium">pippopil/NotebookSmart</a>.</li>
                 <li>При каждом коммите запускается <strong>Build NotebookSmart Android APK & PWA</strong>.</li>
                 <li>Gradle компилирует <strong>NotebookSmart-debug.apk</strong> и загружает его в раздел <strong>Artifacts</strong>.</li>
-                <li>При публикации тегов и релизов workflow <strong>Automatic GitHub Release with Android APK</strong> автоматически создает релиз с прикрепленным файлом <code>.apk</code>!</li>
+                <li>При публикации тегов и релизов workflow автоматически прикрепляет файл <code>.apk</code> к релизу!</li>
               </ol>
             </div>
           </div>
@@ -420,19 +419,19 @@ jobs:
       {/* SUBTAB: RELEASES & CHANGELOG */}
       {activeSubTab === 'releases' && (
         <div className="space-y-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
+          <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-indigo-400" />
-                  <h3 className="font-bold text-base text-white">
+                  <Sparkles className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                  <h3 className="font-bold text-base text-stone-900 dark:text-white">
                     Постоянно обновляемые релизы
                   </h3>
-                  <span className="px-2 py-0.5 rounded-full bg-indigo-600/30 text-indigo-300 font-mono text-xs font-bold border border-indigo-500/30">
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-800 dark:text-amber-300 font-mono text-xs font-bold border border-amber-400/30">
                     v{APP_VERSION}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
                   Каждый релиз содержит номер версии, дату и подробное описание изменений
                 </p>
               </div>
@@ -441,7 +440,7 @@ jobs:
                 href="https://github.com/pippopil/NotebookSmart/releases"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-stone-800 hover:bg-amber-100 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold border border-amber-200 dark:border-stone-700 transition"
               >
                 <Github className="w-3.5 h-3.5" />
                 <span>Релизы на GitHub</span>
@@ -455,50 +454,50 @@ jobs:
                   key={rel.version}
                   className={`p-4 rounded-2xl border transition ${
                     rel.isLatest
-                      ? 'bg-slate-950 border-indigo-500/40'
-                      : 'bg-slate-950/60 border-slate-800'
+                      ? 'bg-amber-50/60 dark:bg-stone-950 border-amber-400/60 dark:border-amber-500/40'
+                      : 'bg-stone-50 dark:bg-stone-950/60 border-stone-200 dark:border-stone-800'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-base text-white">
+                      <span className="font-mono font-bold text-base text-stone-900 dark:text-white">
                         v{rel.version}
                       </span>
                       {rel.isLatest && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-800 dark:text-emerald-400 border border-emerald-500/30 uppercase">
                           Текущий релиз
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-slate-400 flex items-center gap-1 font-mono">
+                    <span className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1 font-mono">
                       <Calendar className="w-3 h-3" />
                       {rel.releaseDate}
                     </span>
                   </div>
 
-                  <h4 className="text-sm font-semibold text-indigo-300 mb-2">
+                  <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-300 mb-2">
                     {rel.title}
                   </h4>
 
                   {/* Highlights */}
                   <div className="space-y-1 mb-3">
                     {rel.highlights.map((h, i) => (
-                      <div key={i} className="flex items-start gap-1.5 text-xs text-slate-200">
-                        <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                      <div key={i} className="flex items-start gap-1.5 text-xs text-stone-700 dark:text-stone-200">
+                        <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                         <span>{h}</span>
                       </div>
                     ))}
                   </div>
 
                   {/* Categories */}
-                  <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                  <div className="pt-2 border-t border-stone-200 dark:border-stone-800/80 space-y-2">
                     {rel.categories.map((cat, idx) => (
                       <div key={idx} className="text-xs">
-                        <span className="font-medium text-slate-300 block mb-1">{cat.name}:</span>
-                        <ul className="space-y-0.5 pl-2 text-slate-400">
+                        <span className="font-medium text-stone-800 dark:text-stone-300 block mb-1">{cat.name}:</span>
+                        <ul className="space-y-0.5 pl-2 text-stone-600 dark:text-stone-400">
                           {cat.items.map((it, itemIdx) => (
                             <li key={itemIdx} className="flex items-start gap-1.5">
-                              <span className="text-indigo-400 font-bold">•</span>
+                              <span className="text-amber-600 dark:text-amber-400 font-bold">•</span>
                               <span>{it}</span>
                             </li>
                           ))}
@@ -515,40 +514,40 @@ jobs:
 
       {/* SUBTAB 3: BACKUP & RESTORE */}
       {activeSubTab === 'backup' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-          <h3 className="font-bold text-base text-white mb-2 flex items-center gap-2">
-            <Download className="w-4 h-4 text-indigo-400" />
+        <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 shadow-sm">
+          <h3 className="font-bold text-base text-stone-900 dark:text-white mb-2 flex items-center gap-2">
+            <Download className="w-4 h-4 text-amber-600 dark:text-amber-400" />
             <span>Резервная копия данных</span>
           </h3>
-          <p className="text-xs text-slate-400 mb-4">
+          <p className="text-xs text-stone-600 dark:text-stone-400 mb-4">
             Выгрузите все свои умные заметки, расчеты оплат и списки покупок в файл JSON или восстановите их на новом устройстве.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between">
+            <div className="bg-stone-50 dark:bg-stone-950 p-4 rounded-2xl border border-stone-200 dark:border-stone-800 flex flex-col justify-between">
               <div>
-                <h4 className="font-semibold text-sm text-white mb-1">Экспорт заметок</h4>
-                <p className="text-xs text-slate-400 mb-4">
+                <h4 className="font-semibold text-sm text-stone-900 dark:text-white mb-1">Экспорт заметок</h4>
+                <p className="text-xs text-stone-600 dark:text-stone-400 mb-4">
                   Сохранить все {notes.length} заметок в локальный файл JSON
                 </p>
               </div>
               <button
                 onClick={handleExportJson}
-                className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow transition active:scale-95"
+                className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs shadow-xs transition active:scale-95 cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>Скачать резервную копию JSON</span>
               </button>
             </div>
 
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between">
+            <div className="bg-stone-50 dark:bg-stone-950 p-4 rounded-2xl border border-stone-200 dark:border-stone-800 flex flex-col justify-between">
               <div>
-                <h4 className="font-semibold text-sm text-white mb-1">Импорт заметок</h4>
-                <p className="text-xs text-slate-400 mb-4">
+                <h4 className="font-semibold text-sm text-stone-900 dark:text-white mb-1">Импорт заметок</h4>
+                <p className="text-xs text-stone-600 dark:text-stone-400 mb-4">
                   Загрузить заметки из ранее сохраненного файла JSON
                 </p>
               </div>
-              <label className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 transition cursor-pointer active:scale-95">
+              <label className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-amber-100 dark:bg-stone-800 hover:bg-amber-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 font-semibold text-xs border border-amber-300 dark:border-stone-700 transition cursor-pointer active:scale-95">
                 <Upload className="w-4 h-4" />
                 <span>Выбрать файл JSON</span>
                 <input

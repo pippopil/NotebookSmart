@@ -245,7 +245,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none">
+    <div className="min-h-screen bg-[#faf7f2] dark:bg-[#141210] text-stone-900 dark:text-stone-100 flex flex-col font-sans select-none transition-colors duration-200">
       {/* Top Mobile App Header */}
       <Header
         syncStatus={syncStatus}
@@ -261,7 +261,7 @@ export default function App() {
         {/* TAB 1: NOTES LIST */}
         {activeTab === 'notes' && (
           <div className="pb-24">
-            {/* Category Filter Chips (РАЗДЕЛЬНЫЙ ВЫБОР) */}
+            {/* Category Filter Chips */}
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none mb-3">
               {[
                 { id: 'all', label: 'Все записи' },
@@ -276,10 +276,10 @@ export default function App() {
                     triggerHaptic();
                     setActiveCategoryFilter(c.id);
                   }}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition active:scale-95 ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition active:scale-95 cursor-pointer ${
                     activeCategoryFilter === c.id
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-slate-900/80 hover:bg-slate-800 text-slate-400 border border-slate-800'
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm shadow-orange-500/25'
+                      : 'bg-stone-200/80 hover:bg-stone-300/80 text-stone-700 dark:bg-stone-900/80 dark:hover:bg-stone-800 dark:text-stone-300 border border-stone-300/60 dark:border-stone-800'
                   }`}
                 >
                   {c.label}
@@ -289,14 +289,14 @@ export default function App() {
 
             {/* Notes Grid */}
             {filteredNotes.length === 0 ? (
-              <div className="text-center py-16 px-4 bg-slate-900/40 rounded-3xl border border-slate-800/80 mt-4">
-                <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mx-auto mb-3">
+              <div className="text-center py-16 px-4 bg-white dark:bg-stone-900/60 rounded-3xl border border-amber-900/10 dark:border-stone-800 shadow-sm mt-4">
+                <div className="w-14 h-14 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto mb-3">
                   <FileText className="w-7 h-7" />
                 </div>
-                <h3 className="text-base font-bold text-white mb-1">
+                <h3 className="text-base font-bold text-stone-900 dark:text-white mb-1">
                   {searchQuery ? 'Ничего не найдено' : 'Пока нет записей'}
                 </h3>
-                <p className="text-xs text-slate-400 max-w-xs mx-auto mb-5">
+                <p className="text-xs text-stone-500 dark:text-stone-400 max-w-xs mx-auto mb-5">
                   {searchQuery
                     ? 'Попробуйте изменить поисковый запрос'
                     : 'Создайте страницу в тетради: заметку, список покупок или событие'}

@@ -4,18 +4,34 @@
   :root {
     --safe-area-inset-top: env(safe-area-inset-top, 0px);
     --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+    --bg-page: #faf7f2;
+    --text-primary: #1c1917;
+    --border-warm: #e7dfd5;
+    --paper-sheet: #fffdf9;
+    --grid-ink: rgba(217, 119, 6, 0.11);
+    --margin-red: rgba(244, 63, 94, 0.55);
+  }
+
+  .dark {
+    --bg-page: #141210;
+    --text-primary: #f5f5f4;
+    --border-warm: #2e2924;
+    --paper-sheet: #1c1917;
+    --grid-ink: rgba(245, 158, 11, 0.08);
+    --margin-red: rgba(244, 63, 94, 0.35);
   }
 
   html, body {
     height: 100%;
     margin: 0;
     padding: 0;
-    background-color: #090d16;
-    color: #f1f5f9;
+    background-color: var(--bg-page);
+    color: var(--text-primary);
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
     overscroll-behavior-y: none;
+    transition: background-color 0.25s ease, color 0.25s ease;
   }
 
   /* Allow text selection inside editors and note content */
@@ -24,7 +40,7 @@
   }
 }
 
-/* Custom scrollbars */
+/* Custom warm scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -33,23 +49,44 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
+  background: rgba(217, 119, 6, 0.2);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: rgba(217, 119, 6, 0.35);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(168, 162, 158, 0.2);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 162, 158, 0.35);
 }
 
 /* Glassmorphism utilities */
 .glass-panel {
-  background: rgba(30, 41, 59, 0.7);
+  background: rgba(255, 253, 249, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(231, 223, 213, 0.8);
+}
+
+.dark .glass-panel {
+  background: rgba(28, 25, 23, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .glass-nav {
-  background: rgba(15, 23, 42, 0.85);
+  background: rgba(255, 253, 249, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(231, 223, 213, 0.9);
+}
+
+.dark .glass-nav {
+  background: rgba(20, 18, 16, 0.92);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -65,33 +102,41 @@
 
 /* 📐 ОФОРМЛЕНИЕ В ВИДЕ ТЕТРАДИ В КЛЕТОЧКУ (Graph Paper Notebook) */
 
-/* 1. Светлая классическая школьная тетрадь в клеточку (5 мм) */
+/* Адаптивная тетрадь в клеточку (Светлая теплая бумага днем / Уютная ночью) */
+.notebook-grid-warm,
 .notebook-grid-light {
-  background-color: #fafbfc;
-  color: #1e293b;
+  background-color: #fffdf9;
+  color: #1c1917;
   background-image:
-    linear-gradient(to right, rgba(147, 197, 253, 0.45) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(147, 197, 253, 0.45) 1px, transparent 1px);
+    linear-gradient(to right, rgba(217, 119, 6, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(217, 119, 6, 0.12) 1px, transparent 1px);
   background-size: 20px 20px;
   background-position: 0 0;
 }
 
-/* 2. Темная тетрадь в клеточку (Dark Blueprint / Cyber Notebook) */
+.dark .notebook-grid-warm,
 .notebook-grid-dark {
-  background-color: #0b1120;
-  color: #f1f5f9;
+  background-color: #1a1714;
+  color: #f5f5f4;
   background-image:
-    linear-gradient(to right, rgba(56, 189, 248, 0.12) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(56, 189, 248, 0.12) 1px, transparent 1px);
+    linear-gradient(to right, rgba(245, 158, 11, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(245, 158, 11, 0.08) 1px, transparent 1px);
   background-size: 20px 20px;
   background-position: 0 0;
 }
 
-/* 3. Тетрадь в линейку */
+/* Тетрадь в линейку */
 .notebook-lines {
-  background-color: #fafbfc;
-  color: #1e293b;
-  background-image: linear-gradient(to bottom, rgba(147, 197, 253, 0.5) 1px, transparent 1px);
+  background-color: #fffdf9;
+  color: #1c1917;
+  background-image: linear-gradient(to bottom, rgba(217, 119, 6, 0.14) 1px, transparent 1px);
+  background-size: 100% 24px;
+}
+
+.dark .notebook-lines {
+  background-color: #1a1714;
+  color: #f5f5f4;
+  background-image: linear-gradient(to bottom, rgba(245, 158, 11, 0.09) 1px, transparent 1px);
   background-size: 100% 24px;
 }
 
@@ -106,26 +151,37 @@
   bottom: 0;
   left: 48px;
   width: 2px;
-  background-color: rgba(239, 68, 68, 0.7);
+  background-color: rgba(239, 68, 68, 0.55);
   pointer-events: none;
   z-index: 5;
 }
 
+.dark .notebook-margin-red::before {
+  background-color: rgba(239, 68, 68, 0.4);
+}
+
 /* Спираль тетради (Spiral binder rings on the edge) */
 .notebook-spiral-border {
-  border-left: 12px solid #e2e8f0;
-  box-shadow: inset 4px 0 6px -2px rgba(0, 0, 0, 0.15);
+  border-left: 12px solid #fef3c7;
+  box-shadow: inset 4px 0 6px -2px rgba(180, 83, 9, 0.15);
 }
 
 .dark .notebook-spiral-border {
-  border-left: 12px solid #1e293b;
+  border-left: 12px solid #292524;
   box-shadow: inset 4px 0 6px -2px rgba(0, 0, 0, 0.5);
 }
 
 /* Тень разворота тетради */
 .notebook-page-shadow {
   box-shadow:
-    0 10px 25px -5px rgba(0, 0, 0, 0.3),
-    0 8px 10px -6px rgba(0, 0, 0, 0.2),
+    0 10px 25px -5px rgba(120, 53, 15, 0.08),
+    0 8px 10px -6px rgba(120, 53, 15, 0.04),
+    inset 0 0 0 1px rgba(217, 119, 6, 0.12);
+}
+
+.dark .notebook-page-shadow {
+  box-shadow:
+    0 10px 25px -5px rgba(0, 0, 0, 0.4),
+    0 8px 10px -6px rgba(0, 0, 0, 0.3),
     inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }

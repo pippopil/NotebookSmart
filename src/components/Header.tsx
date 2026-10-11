@@ -1,8 +1,9 @@
 import React from 'react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { SyncStatus } from '../types';
-import { Cloud, CloudOff, RefreshCw, Github, Sparkles, WifiOff } from 'lucide-react';
-
+import { Cloud, CloudOff, RefreshCw, Github, WifiOff, Search } from 'lucide-react';
+import { AppLogo } from './AppLogo';
+import { ThemeToggle } from './ThemeToggle';
 import { APP_VERSION } from '../version';
 
 interface HeaderProps {
@@ -24,38 +25,39 @@ export const Header: React.FC<HeaderProps> = ({
   onSearchChange,
 }) => {
   return (
-    <header className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-xl border-b border-slate-800/80 px-4 py-3 safe-top">
-      <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-        {/* Brand */}
+    <header className="sticky top-0 z-40 bg-[#fcfaf7]/90 dark:bg-[#161412]/90 backdrop-blur-xl border-b border-amber-900/10 dark:border-stone-800/80 px-4 py-3 safe-top transition-colors">
+      <div className="max-w-4xl mx-auto flex items-center justify-between gap-2.5">
+        {/* Brand: Original NotebookSmart Logo & Version */}
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-0.5 shadow-md shadow-indigo-500/20 flex items-center justify-center shrink-0">
-            <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-cyan-400" />
-            </div>
-          </div>
+          <AppLogo size={36} />
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-bold text-base tracking-tight text-white">NotebookSmart</span>
+              <span className="font-extrabold text-base tracking-tight text-stone-900 dark:text-stone-50">
+                NotebookSmart
+              </span>
               <button
                 onClick={onOpenChangelog}
-                className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition active:scale-95 cursor-pointer flex items-center gap-1"
+                className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 border border-amber-400/30 transition active:scale-95 cursor-pointer flex items-center gap-1"
                 title="Что нового? История версий"
               >
                 <span>v{APP_VERSION}</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               </button>
             </div>
-            <p className="text-[11px] text-slate-400 leading-none mt-0.5">
+            <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-none mt-0.5">
               Умные оплаты & Покупки
             </p>
           </div>
         </div>
 
-        {/* Right tools: Sync badge, PWA Install, GitHub */}
-        <div className="flex items-center gap-2">
+        {/* Right tools: Theme Toggle (День/Ночь), Sync, PWA, GitHub */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Day / Night Mode Toggle */}
+          <ThemeToggle />
+
           {/* Offline notice */}
           {!isOnline && (
-            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px]">
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30 text-[11px]">
               <WifiOff className="w-3 h-3" />
               <span className="hidden sm:inline">Офлайн</span>
             </div>
@@ -64,24 +66,24 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Sync status button */}
           <button
             onClick={onOpenSync}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-medium transition active:scale-95"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-stone-100 hover:bg-stone-200/80 dark:bg-stone-850 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-xs font-medium transition active:scale-95"
             title="Синхронизация Firebase & GitHub Actions"
           >
             {syncStatus.isConnected ? (
               <>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-[11px] text-emerald-300 hidden sm:inline">Синхрон</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <Cloud className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-[11px] text-emerald-700 dark:text-emerald-300 hidden sm:inline">Синхрон</span>
               </>
             ) : syncStatus.isConfigured ? (
               <>
-                <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin" />
-                <span className="text-[11px] text-blue-300 hidden sm:inline">Подключение</span>
+                <RefreshCw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-spin" />
+                <span className="text-[11px] text-amber-700 dark:text-amber-300 hidden sm:inline">Подключение</span>
               </>
             ) : (
               <>
-                <CloudOff className="w-3.5 h-3.5 text-slate-400" />
-                <span className="text-[11px] text-slate-400 hidden sm:inline">Firebase</span>
+                <CloudOff className="w-3.5 h-3.5 text-stone-400" />
+                <span className="text-[11px] text-stone-500 dark:text-stone-400 hidden sm:inline">Firebase</span>
               </>
             )}
           </button>
@@ -94,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
             href="https://github.com/pippopil/NotebookSmart"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition"
+            className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white border border-stone-200 dark:border-stone-700 transition"
             title="GitHub: pippopil/NotebookSmart"
           >
             <Github className="w-4 h-4" />
@@ -110,20 +112,13 @@ export const Header: React.FC<HeaderProps> = ({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Поиск по заметкам, товарам или суммам..."
-            className="w-full bg-slate-900/90 text-sm text-slate-100 placeholder-slate-500 rounded-xl px-3.5 py-1.5 pl-9 border border-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
+            className="w-full bg-white/95 dark:bg-stone-900/90 text-sm text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 rounded-xl px-3.5 py-1.5 pl-9 border border-amber-900/15 dark:border-stone-800 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition shadow-2xs"
           />
-          <svg
-            className="w-4 h-4 text-slate-500 absolute left-3 top-2.5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+          <Search className="w-4 h-4 text-stone-400 absolute left-3 top-2.5" />
           {searchQuery && (
             <button
               onClick={() => onSearchChange('')}
-              className="absolute right-2.5 top-2 text-xs text-slate-400 hover:text-white bg-slate-800 rounded-full w-4 h-4 flex items-center justify-center"
+              className="absolute right-2.5 top-2 text-xs text-stone-400 hover:text-stone-700 dark:hover:text-white bg-stone-200 dark:bg-stone-800 rounded-full w-4 h-4 flex items-center justify-center transition"
             >
               ✕
             </button>
