@@ -106,16 +106,41 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     }, 10);
   };
 
-  // Insert grand total line at bottom
+  // Insert or update grand total line
   const handleInsertGrandTotal = () => {
     triggerHaptic();
-    const totalLine = `\n\nИтого: ${formatMoney(mathSummary.grandTotal, mathSummary.currency)}`;
-    setContent((prev) => prev.trim() + totalLine);
+    const formattedTotal = formatMoney(mathSummary.grandTotal, mathSummary.currency);
+    const totalLineRegex = /^([-*•]?\s*(?:итого|всего|общая сумма|расходы|total|sum)\s*[:—\-=]?).*$/im;
+
+    if (totalLineRegex.test(content)) {
+      const updated = content.replace(totalLineRegex, `Итого: ${formattedTotal}`);
+      setContent(updated);
+      setCopiedText(`Обновлено: ${formattedTotal}`);
+      setTimeout(() => setCopiedText(null), 2000);
+    } else {
+      const totalLine = `\n\nИтого: ${formattedTotal}`;
+      setContent((prev) => prev.trim() + totalLine);
+      setCopiedText(`Вставлено: ${formattedTotal}`);
+      setTimeout(() => setCopiedText(null), 2000);
+    }
   };
 
-  const handleCopyResult = (res: number, curr: string) => {
+  const handleCopyResult = (res: number, curr: string, line?: any) => {
     triggerHaptic();
-    const formatted = `${res} ${curr}`;
+    const formatted = formatMoney(res, curr);
+
+    // If user clicked on a total line, update that line directly in the note
+    if (line && line.isTotalLine) {
+      const totalLineRegex = /^([-*•]?\s*(?:итого|всего|общая сумма|расходы|total|sum)\s*[:—\-=]?).*$/im;
+      if (totalLineRegex.test(content)) {
+        const updated = content.replace(totalLineRegex, `Итого: ${formatted}`);
+        setContent(updated);
+        setCopiedText(`Вставлено: ${formatted}`);
+        setTimeout(() => setCopiedText(null), 2000);
+        return;
+      }
+    }
+
     navigator.clipboard.writeText(formatted);
     setCopiedText(formatted);
     setTimeout(() => setCopiedText(null), 2000);
@@ -439,9 +464,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   <div key={idx} className="h-6 flex items-center justify-end">
                     {line.result !== null ? (
                       <button
-                        onClick={() => handleCopyResult(line.result!, line.currency)}
-                        className="group/res flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 font-semibold text-xs transition active:scale-95 shadow-xs"
-                        title="Нажмите, чтобы скопировать результат"
+                        onClick={() => handleCopyResult(line.result!, line.currency, line)}
+                        className={`group/res flex items-center gap-1 px-2 py-0.5 rounded-md border font-semibold text-xs transition active:scale-95 shadow-xs ${
+                          line.isTotalLine
+                            ? 'bg-emerald-600/40 hover:bg-emerald-600/60 border-emerald-400 text-emerald-200'
+                            : 'bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300'
+                        }`}
+                        title={line.isTotalLine ? 'Нажмите, чтобы вставить итог в строку' : 'Нажмите, чтобы скопировать результат'}
                       >
                         <span>= {formatMoney(line.result, line.currency)}</span>
                         <Copy className="w-2.5 h-2.5 opacity-0 group-hover/res:opacity-100 transition" />

@@ -1,25 +1,134 @@
 import { LineCalculation, NoteCalculationSummary } from '../types';
 
 /**
+ * Normalizes numbers with thousands separators and comma decimals:
+ * - "3 000" -> "3000"
+ * - "3.000" -> "3000" (dot as thousands separator)
+ * - "3,000" -> "3000" (comma as thousands separator)
+ * - "35.000" -> "35000", "1.000.000" -> "1000000"
+ * - "3.000,50" -> "3000.50", "3,000.50" -> "3000.50"
+ * - "561,69" -> "561.69", "3,5" -> "3.5"
+ */
+export function normalizeNumbers(text: string): string {
+  // 1. Grouped thousands with dots/commas followed by decimals:
+  // "3.000,50" -> "3000.50", "3,000.50" -> "3000.50"
+  let s = text.replace(
+    /(\d{1,3}(?:[.]\d{3})+),(\d+)/g,
+    (_, intPart, dec) => intPart.replace(/[.]/g, '') + '.' + dec
+  );
+  s = s.replace(
+    /(\d{1,3}(?:[,]\d{3})+)[.](\d+)/g,
+    (_, intPart, dec) => intPart.replace(/[,]/g, '') + '.' + dec
+  );
+
+  // 2. Pure thousands with dots: e.g. "3.000", "35.000", "1.000.000"
+  // Where dot is followed by groups of 3 digits without further digits/decimals
+  s = s.replace(/\b(\d{1,3}(?:[.]\d{3})+)(?!\d|[.]\d)/g, (_, m) =>
+    m.replace(/[.]/g, '')
+  );
+
+  // 3. Pure thousands with commas: e.g. "3,000", "35,000", "1,000,000"
+  s = s.replace(/\b(\d{1,3}(?:[,]\d{3})+)(?!\d|[,]\d)/g, (_, m) =>
+    m.replace(/[,]/g, '')
+  );
+
+  // 4. Any remaining comma between digits where it is a decimal: e.g. "561,69" -> "561.69"
+  s = s.replace(/(\d+),(\d+)/g, '$1.$2');
+
+  // 5. Thousands separator spaces between digits: "3 000" -> "3000", "35 000" -> "35000"
+  s = s.replace(/(?<=\d)[\s\u00A0\u202F\u2009\u200A\u2002\u2003]+(?=\d)/g, '');
+
+  return s;
+}
+
+/**
+ * Normalizes text line by replacing Russian money multipliers:
+ * "3-х тысяч" -> "3000", "3 тыс" -> "3000", "3 тысячи" -> "3000", "3к" -> "3000"
+ * "1.5 тыс" -> "1500", "2 млн" -> "2000000"
+ */
+export function normalizeMultipliers(text: string): string {
+  return text
+    // 1. Thousands: 3-х тысяч, 3х тысяч, 3-ех тысяч, 3 тысячи, 3 тысяч, 3 тыс., 3 тыс
+    .replace(
+      /(\d+(?:[.,]\d+)?)\s*(?:[-–—]?(?:х|ех|мя|ем|и)?\s*)?(?:тыс(?:яч[а-я]*)?\.?)(?!\p{L})/giu,
+      (_, n) => {
+        const val = parseFloat(n.replace(',', '.'));
+        return isNaN(val) ? _ : `${val * 1000}`;
+      }
+    )
+    // 2. Short "к" or "k": 3к, 3 к, 3k, 3 k
+    .replace(/(\d+(?:[.,]\d+)?)\s*(?:к|k)(?!\p{L})/giu, (_, n) => {
+      const val = parseFloat(n.replace(',', '.'));
+      return isNaN(val) ? _ : `${val * 1000}`;
+    })
+    // 3. Millions: 3 млн, 3-х миллионов, 3 млн., 3 миллиона
+    .replace(
+      /(\d+(?:[.,]\d+)?)\s*(?:[-–—]?(?:х|ех|мя|ем|и)?\s*)?(?:млн\.?|миллион[а-я]*)(?!\p{L})/giu,
+      (_, n) => {
+        const val = parseFloat(n.replace(',', '.'));
+        return isNaN(val) ? _ : `${val * 1000000}`;
+      }
+    )
+    // 4. Billions: 3 млрд, 3 миллиарда
+    .replace(
+      /(\d+(?:[.,]\d+)?)\s*(?:[-–—]?(?:х|ех|мя|ем|и)?\s*)?(?:млрд\.?|миллиард[а-я]*)(?!\p{L})/giu,
+      (_, n) => {
+        const val = parseFloat(n.replace(',', '.'));
+        return isNaN(val) ? _ : `${val * 1000000000}`;
+      }
+    );
+}
+
+/**
+ * Strips currency words and abbreviations from math candidate
+ */
+export function stripCurrency(text: string): string {
+  return text
+    .replace(
+      /(?:руб(?:лей|ля|\.?)|rub|usd|eur|тенге|бел\.?руб|гривен|грн|\$|€|₽|₸|Br|₴|(?<=\d|\s|^)р\.?(?!\p{L}))/giu,
+      ''
+    )
+    .trim();
+}
+
+/**
+ * Extracts currency symbol from line
+ */
+export function detectCurrency(text: string): string {
+  if (/(\$|usd|доллар)/i.test(text)) return '$';
+  if (/(€|eur|евро)/i.test(text)) return '€';
+  if (/(₸|kzt|тенге)/i.test(text)) return '₸';
+  if (/(Br|byn|бел\.?руб)/i.test(text)) return 'Br';
+  if (/(₴|uah|гривн)/i.test(text)) return '₴';
+  return '₽'; // Default Russian Ruble
+}
+
+/**
  * Safely evaluates a simple arithmetic expression without using `eval`.
- * Supports +, -, *, /, %, parentheses, and percentage modifications.
+ * Supports +, -, *, /, %, parentheses, percentage modifications, and grouped numbers.
  */
 export function safeEvalMath(expressionStr: string): number | null {
   try {
     let expr = expressionStr.trim();
     if (!expr) return null;
 
+    // Normalize multipliers and numbers
+    expr = normalizeMultipliers(expr);
+    expr = normalizeNumbers(expr);
+
     // Replace unicode multiplication and division symbols
     expr = expr.replace(/[×xX]/g, '*').replace(/[÷:]/g, '/');
 
     // Handle percentage discounts or additions like: "5000 - 20%" -> "5000 * (1 - 0.20)"
-    // Pattern: [Number] [+ -] [Number]%
-    expr = expr.replace(/(\d+(?:\.\d+)?)\s*([+-])\s*(\d+(?:\.\d+)?)\s*%/g, (_, base, op, pct) => {
-      const b = parseFloat(base);
-      const p = parseFloat(pct);
-      const delta = (b * p) / 100;
-      return op === '+' ? `${b + delta}` : `${b - delta}`;
-    });
+    expr = expr.replace(
+      /(\d+(?:\.\d+)?)\s*([+-])\s*(\d+(?:\.\d+)?)\s*%/g,
+      (_, base, op, pct) => {
+        const b = parseFloat(base);
+        const p = parseFloat(pct);
+        const delta = (b * p) / 100;
+        return op === '+' ? `${b + delta}` : `${b - delta}`;
+      }
+    );
 
     // Standalone percentage: "20%" -> "0.2"
     expr = expr.replace(/(\d+(?:\.\d+)?)\s*%/g, '($1 / 100)');
@@ -40,7 +149,7 @@ export function safeEvalMath(expressionStr: string): number | null {
       }
       if (/\d|\./.test(char)) {
         let numStr = '';
-        while (i < expr.length && (/\d|\./.test(expr[i]))) {
+        while (i < expr.length && /\d|\./.test(expr[i])) {
           numStr += expr[i];
           i++;
         }
@@ -114,34 +223,16 @@ export function safeEvalMath(expressionStr: string): number | null {
     const val = parseExpression();
     if (isNaN(val) || !isFinite(val)) return null;
 
+    // If there are unconsumed tokens, expression is invalid
+    if (tokenIndex < tokens.length) {
+      return null;
+    }
+
     // Round to 2 decimals to prevent floating point glitches
     return Math.round(val * 100) / 100;
   } catch {
     return null;
   }
-}
-
-/**
- * Normalizes text line by replacing Russian money multipliers:
- * "5к" or "5k" -> "5000", "1.5 тыс" -> "1500", "2 млн" -> "2000000"
- */
-function normalizeMultipliers(text: string): string {
-  return text
-    .replace(/(\d+(?:[.,]\d+)?)\s*(?:к|k)\b/gi, (_, n) => `${parseFloat(n.replace(',', '.')) * 1000}`)
-    .replace(/(\d+(?:[.,]\d+)?)\s*тыс(?:яч)?\.?\b/gi, (_, n) => `${parseFloat(n.replace(',', '.')) * 1000}`)
-    .replace(/(\d+(?:[.,]\d+)?)\s*млн\.?\b/gi, (_, n) => `${parseFloat(n.replace(',', '.')) * 1000000}`);
-}
-
-/**
- * Extracts currency symbol from line
- */
-function detectCurrency(text: string): string {
-  if (/(\$|usd|доллар)/i.test(text)) return '$';
-  if (/(€|eur|евро)/i.test(text)) return '€';
-  if (/(₸|kzt|тенге)/i.test(text)) return '₸';
-  if (/(Br|byn|бел\.?руб)/i.test(text)) return 'Br';
-  if (/(₴|uah|гривн)/i.test(text)) return '₴';
-  return '₽'; // Default Russian Ruble
 }
 
 /**
@@ -164,18 +255,17 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
     };
   }
 
-  const isTotalLine = /^(итого|всего|общая сумма|расходы|баланс|total|sum)\b/i.test(trimmed);
+  const isTotalLine = /^[-*•]?\s*(?:итого|всего|общая сумма|расходы|остаток(?: бюджета)?|баланс|total|sum|balance)(?:\s*[:—\-=]|\s+|$)/i.test(
+    trimmed
+  );
 
-  // Normalize comma decimals and abbreviations
-  const normalized = normalizeMultipliers(trimmed.replace(/(\d+),(\d+)/g, '$1.$2'));
+  // 1. Normalize Russian multipliers (3-х тысяч, 3 тыс, 3 тысячи, 3к)
+  const withMultipliers = normalizeMultipliers(trimmed);
+
+  // 2. Normalize grouped numbers (3.000, 3,000, 3 000 -> 3000, decimals 561,69 -> 561.69)
+  const normalized = normalizeNumbers(withMultipliers);
 
   // Split label from math expression
-  // Patterns like:
-  // "Обед в столовой: 450 + 120"
-  // "Аренда - 35000"
-  // "Зарплата = 120000"
-  // "Такси 500 * 2 = "
-  // "350 + 400 + 150"
   let label = '';
   let potentialExpr = '';
 
@@ -190,8 +280,10 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
     potentialExpr = normalized.substring(eqIdx + 1).trim();
   } else {
     // Check if line has words followed by math
-    // e.g. "Кофе 250 * 2" or "Бензин 2500"
-    const match = normalized.match(/^(.*?)([\d\s+\-*/%().xX×÷]+(?:руб|р|rub|\$|€|₽|тенге)?)$/i);
+    // e.g. "Кофе 250 * 2" or "Бензин 2500" or "Аренда 3000"
+    const match = normalized.match(
+      /^(.*?)([\d\s+\-*/%().xX×÷]+(?:руб(?:лей|ля|\.?)|р\.?|rub|\$|€|₽|тенге)?)$/i
+    );
     if (match && match[1] && match[2] && /\d/.test(match[2])) {
       label = match[1].trim();
       potentialExpr = match[2].trim();
@@ -200,14 +292,11 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
     }
   }
 
-  // Strip currency words from math candidate
-  const cleanExpr = potentialExpr
-    .replace(/(?:руб(?:лей|\.?)|rub|usd|eur|тенге|бел\.?руб|гривен|\$|€|₽|₸|Br|₴)/gi, '')
-    .trim();
+  // Strip currency words and symbols
+  const cleanExpr = stripCurrency(potentialExpr);
 
   // Test if it has digits
   if (/\d/.test(cleanExpr)) {
-    // Only evaluate if it contains operators OR is a standalone number
     const result = safeEvalMath(cleanExpr);
     if (result !== null && !isNaN(result)) {
       return {
@@ -237,22 +326,48 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
  * Analyzes whole note text line-by-line and calculates grand total and currency breakdowns.
  */
 export function analyzeNote(content: string): NoteCalculationSummary {
-  const lines = content.split('\n').map((line, idx) => analyzeLine(line, idx + 1));
+  const rawLines = content.split('\n');
+  const lines: LineCalculation[] = [];
   const breakdownByCurrency: Record<string, number> = {};
   let totalCalculatedLines = 0;
   let primaryCurrency = '₽';
+  let runningSubtotal = 0;
 
-  for (const line of lines) {
-    // Skip explicit user "итого:" lines from double counting
-    if (line.result !== null && !line.isTotalLine) {
-      totalCalculatedLines++;
-      const curr = line.currency;
-      breakdownByCurrency[curr] = (breakdownByCurrency[curr] || 0) + line.result;
-      primaryCurrency = curr;
+  for (let idx = 0; idx < rawLines.length; idx++) {
+    const rawLine = rawLines[idx];
+    const parsed = analyzeLine(rawLine, idx + 1);
+
+    if (parsed.isTotalLine) {
+      // Total lines (e.g. "Итого:", "Итого: 3 000 ₽", "Всего:")
+      // If there are calculated items above, sum them up.
+      // If there are no items above, but the line itself has an explicit number (e.g. "Итого: 3 000"),
+      // preserve that number.
+      let totalSoFar: number;
+      if (runningSubtotal > 0) {
+        totalSoFar = Math.round(runningSubtotal * 100) / 100;
+      } else if (parsed.result !== null && parsed.result > 0) {
+        totalSoFar = parsed.result;
+        runningSubtotal = parsed.result;
+      } else {
+        totalSoFar = 0;
+      }
+
+      parsed.result = totalSoFar;
+      parsed.currency = primaryCurrency;
+      lines.push(parsed);
+    } else {
+      if (parsed.result !== null) {
+        totalCalculatedLines++;
+        const curr = parsed.currency;
+        breakdownByCurrency[curr] = (breakdownByCurrency[curr] || 0) + parsed.result;
+        primaryCurrency = curr;
+        runningSubtotal += parsed.result;
+      }
+      lines.push(parsed);
     }
   }
 
-  const grandTotal = breakdownByCurrency[primaryCurrency] || 0;
+  const grandTotal = breakdownByCurrency[primaryCurrency] || runningSubtotal || 0;
 
   return {
     lines,
@@ -265,7 +380,7 @@ export function analyzeNote(content: string): NoteCalculationSummary {
 
 /**
  * Format currency with thousands spaces
- * e.g. 35000 -> "35 000 ₽"
+ * e.g. 35000 -> "35 000 ₽", 3000 -> "3 000 ₽"
  */
 export function formatMoney(amount: number, currency = '₽'): string {
   const rounded = Math.round(amount * 100) / 100;
