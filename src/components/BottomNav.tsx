@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { FileText, ShoppingCart, Calendar, Calculator, Plus, X } from 'lucide-react';
+import { FileText, ShoppingCart, Calendar, Calculator, Plus, X, Archive } from 'lucide-react';
 import { NoteCategory } from '../types';
 
 interface BottomNavProps {
-  activeTab: 'notes' | 'shopping' | 'events' | 'calc' | 'sync';
-  onTabChange: (tab: 'notes' | 'shopping' | 'events' | 'calc' | 'sync') => void;
+  activeTab: 'notes' | 'shopping' | 'events' | 'calc' | 'sync' | 'archive';
+  onTabChange: (tab: 'notes' | 'shopping' | 'events' | 'calc' | 'sync' | 'archive') => void;
   onNewNote: (category: NoteCategory) => void;
+  onOpenTemplates?: () => void;
   pendingShoppingCount: number;
   upcomingEventsCount?: number;
 }
@@ -14,6 +15,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   onTabChange,
   onNewNote,
+  onOpenTemplates,
   pendingShoppingCount,
   upcomingEventsCount = 0,
 }) => {
@@ -82,6 +84,19 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             </button>
 
             <button
+              onClick={() => handleCreateCategory('payment')}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-amber-50/70 hover:bg-amber-100/80 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-amber-300/70 dark:border-stone-700/60 text-left transition active:scale-98"
+            >
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <Calculator className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-sm font-bold text-stone-900 dark:text-white block">Финансы & Бюджет</span>
+                <span className="text-[11px] text-stone-600 dark:text-stone-400">Прибыль, расходы и остаток</span>
+              </div>
+            </button>
+
+            <button
               onClick={() => handleCreateCategory('event')}
               className="w-full flex items-center gap-3 p-3 rounded-2xl bg-purple-50/60 hover:bg-purple-100/70 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-purple-200/60 dark:border-stone-700/60 text-left transition active:scale-98"
             >
@@ -93,6 +108,29 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 <span className="text-[11px] text-stone-500 dark:text-stone-400">Встречи, даты и планы</span>
               </div>
             </button>
+
+            {onOpenTemplates && (
+              <button
+                onClick={() => {
+                  triggerHaptic();
+                  setShowQuickMenu(false);
+                  onOpenTemplates();
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 border border-amber-400/40 text-left transition active:scale-98"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 flex items-center justify-center shrink-0 font-bold">
+                  ⚡
+                </div>
+                <div>
+                  <span className="text-sm font-bold text-amber-950 dark:text-amber-300 block">
+                    Готовые шаблоны на каждый день
+                  </span>
+                  <span className="text-[11px] text-stone-600 dark:text-stone-400">
+                    Бюджет, авто, аптечка, отпуск, чеклисты
+                  </span>
+                </div>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -178,6 +216,20 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           >
             <Calculator className="w-5 h-5" />
             <span className="text-[10px]">Оплаты</span>
+          </button>
+
+          {/* Archive tab: Closed months & completed shopping */}
+          <button
+            onClick={() => onTabChange('archive')}
+            className={`flex flex-col items-center gap-1 transition ${
+              activeTab === 'archive'
+                ? 'text-amber-600 dark:text-amber-400 font-bold scale-105'
+                : 'text-stone-400 hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300'
+            }`}
+            title="Архив прошлых месяцев и покупок"
+          >
+            <Archive className="w-5 h-5" />
+            <span className="text-[10px]">Архив</span>
           </button>
         </div>
       </nav>

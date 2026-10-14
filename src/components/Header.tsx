@@ -11,6 +11,7 @@ interface HeaderProps {
   isOnline: boolean;
   onOpenSync: () => void;
   onOpenChangelog?: () => void;
+  onOpenTemplates?: () => void;
   onOpenSearch?: () => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   isOnline,
   onOpenSync,
   onOpenChangelog,
+  onOpenTemplates,
   searchQuery,
   onSearchChange,
 }) => {
@@ -50,10 +52,22 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Right tools: Theme Toggle (День/Ночь), Sync, PWA, GitHub */}
+        {/* Right tools: Theme Toggle (День/Ночь), Templates, Sync, PWA, GitHub */}
         <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Day / Night Mode Toggle */}
           <ThemeToggle />
+
+          {/* Quick Life Templates button */}
+          {onOpenTemplates && (
+            <button
+              onClick={onOpenTemplates}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 dark:bg-stone-800 dark:hover:bg-stone-700 text-amber-900 dark:text-amber-300 border border-amber-200/80 dark:border-stone-700 text-xs font-bold transition active:scale-95 cursor-pointer"
+              title="Готовые шаблоны: Бюджет, Продукты, Авто, Аптечка"
+            >
+              <span>⚡</span>
+              <span className="hidden md:inline">Шаблоны</span>
+            </button>
+          )}
 
           {/* Offline notice */}
           {!isOnline && (

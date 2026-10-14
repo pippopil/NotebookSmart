@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Note, NoteCategory } from '../types';
+import { Note, NoteCategory, PaperStyleType } from '../types';
 import { analyzeNote, formatMoney } from '../utils/mathEngine';
 import { extractShoppingItems } from '../utils/shoppingParser';
 import {
@@ -17,8 +17,24 @@ import {
   PlusCircle,
   Grid,
   CheckCircle2,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  Sparkles,
+  Bell,
+  BellRing,
+  BellOff,
+  Volume2,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
+import {
+  getNotificationPermission,
+  requestNotificationPermission,
+  sendTestNotification,
+  formatReminderDateTime,
+  toDateTimeLocalString,
+  NotificationPermissionState,
+} from '../services/notifications';
 
 interface NoteEditorProps {
   note: Note;
@@ -38,16 +54,32 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [category, setCategory] = useState<NoteCategory>(
-    note.category === 'payment' ? 'note' : (note.category || 'note')
+    note.category === 'payment' ? 'payment' : (note.category || 'note')
   );
   const [isPinned, setIsPinned] = useState(note.isPinned || false);
   const [eventDate, setEventDate] = useState(note.eventDate || '');
   const [eventTime, setEventTime] = useState(note.eventTime || '');
   const [isEventDone, setIsEventDone] = useState(note.isEventDone || false);
-  const [paperStyle, setPaperStyle] = useState<'grid' | 'dark-grid' | 'lines' | 'plain'>(
+  const [paperStyle, setPaperStyle] = useState<PaperStyleType>(
     note.paperStyle === 'dark-grid' ? 'grid' : (note.paperStyle || 'grid')
   );
+  const [showPaperMenu, setShowPaperMenu] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+
+  // Push Notifications & Reminders state
+  const [reminderEnabled, setReminderEnabled] = useState(note.reminderEnabled || false);
+  const [reminderDateTime, setReminderDateTime] = useState<string>(() => {
+    if (note.reminderDateTime) return note.reminderDateTime;
+    if (note.category === 'event' && note.eventDate && note.eventTime) {
+      return `${note.eventDate}T${note.eventTime}`;
+    }
+    const defaultDate = new Date(Date.now() + 60 * 60 * 1000);
+    return toDateTimeLocalString(defaultDate);
+  });
+  const [notifPermission, setNotifPermission] = useState<NotificationPermissionState>(() =>
+    getNotificationPermission()
+  );
+  const [testNotifSent, setTestNotifSent] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -67,13 +99,30 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       eventTime,
       isEventDone,
       paperStyle,
+      reminderEnabled,
+      reminderDateTime,
+      reminderTriggered: false,
       updatedAt: Date.now(),
       cachedTotal: mathSummary.grandTotal,
+      cachedIncome: mathSummary.totalIncome,
+      cachedExpenses: mathSummary.totalExpenses,
+      cachedNetBalance: mathSummary.netBalance,
       currency: mathSummary.currency,
       shoppingItemsCount: shoppingItems.length,
       completedItemsCount: shoppingItems.filter((i) => i.isCompleted).length,
     });
-  }, [title, content, category, isPinned, eventDate, eventTime, isEventDone, paperStyle]);
+  }, [
+    title,
+    content,
+    category,
+    isPinned,
+    eventDate,
+    eventTime,
+    isEventDone,
+    paperStyle,
+    reminderEnabled,
+    reminderDateTime,
+  ]);
 
   // Haptic feedback
   const triggerHaptic = () => {
@@ -106,7 +155,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   };
 
   // Copy result or insert calculation
-  const handleCopyResult = (val: number, cur?: string, lineItem?: any) => {
+  const handleCopyResult = (val: number, cur?: string) => {
     triggerHaptic();
     const str = formatMoney(val, cur);
     if (navigator.clipboard) {
@@ -119,7 +168,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   // Insert grand total into text
   const handleInsertGrandTotal = () => {
     triggerHaptic();
-    const totalStr = `\n\nИтого к оплате: ${formatMoney(mathSummary.grandTotal, mathSummary.currency)}`;
+    const label = mathSummary.hasIncomeExpenseSplit
+      ? 'Остаток в итоге:'
+      : 'Итого к оплате:';
+    const totalStr = `\n\n${label} ${formatMoney(mathSummary.grandTotal, mathSummary.currency)}`;
     setContent((prev) => prev + totalStr);
   };
 
@@ -138,7 +190,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           title: title || 'Заметка NotebookSmart',
           text: shareText,
         });
-      } catch (err) {
+      } catch {
         // Ignored if cancelled
       }
     } else if (navigator.clipboard) {
@@ -148,94 +200,123 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     }
   };
 
-  // Paper styling class
+  // Paper styling class mapping
   const paperClass = {
-    'dark-grid': 'notebook-grid-dark text-stone-100',
-    grid: 'notebook-grid-warm text-stone-900 dark:text-stone-100',
-    lines: 'notebook-lines text-stone-900 dark:text-stone-100',
-    plain: 'bg-white dark:bg-stone-950 text-stone-900 dark:text-stone-100',
-  }[paperStyle];
+    'dark-grid': 'notebook-grid-dark',
+    grid: 'notebook-grid-warm',
+    lines: 'notebook-lines',
+    kraft: 'notebook-kraft',
+    dots: 'notebook-dots',
+    plain: 'notebook-plain',
+  }[paperStyle] || 'notebook-grid-warm';
+
+  const paperNames: Record<PaperStyleType, string> = {
+    grid: 'В клетку (тетрадь)',
+    lines: 'В линейку',
+    kraft: 'Крафтовая бумага',
+    dots: 'Точечная (Bullet)',
+    plain: 'Чистый лист (слоновая кость)',
+    'dark-grid': 'Ночная клетка',
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-[#faf7f2] dark:bg-[#141210] text-stone-900 dark:text-stone-100 flex flex-col safe-top safe-bottom transition-colors">
-      {/* Top action header */}
-      <div className="px-4 py-3 bg-[#fcfaf7]/90 dark:bg-stone-900/90 backdrop-blur-xl border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-2 shrink-0">
+      {/* COMPACT & RESPONSIVE TOP ACTION HEADER (Never overflows on mobile) */}
+      <div className="px-3 sm:px-4 py-2.5 bg-[#fcfaf7]/95 dark:bg-stone-900/95 backdrop-blur-xl border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-1.5 shrink-0 z-20">
+        {/* Back Button */}
         <button
           onClick={onClose}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-sm font-medium transition active:scale-95 cursor-pointer border border-stone-200 dark:border-stone-700"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer border border-stone-200 dark:border-stone-700 shrink-0"
+          title="Вернуться к списку заметок"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Назад</span>
+          <span className="hidden xs:inline">Назад</span>
         </button>
 
-        {/* Right tools */}
-        <div className="flex items-center gap-1.5">
-          {category === 'shopping' || shoppingItems.length > 0 ? (
-            <button
-              onClick={() => onOpenShopping({ ...note, content, title })}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-600/30 dark:hover:bg-emerald-600/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30 text-xs font-semibold transition active:scale-95 cursor-pointer"
-              title="Открыть корзину и где купить"
-            >
-              <ShoppingCart className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Где купить ({shoppingItems.length})</span>
-            </button>
-          ) : null}
-
-          {/* Theme Toggle in Note Editor */}
+        {/* Right Tools: Day/Night, Paper, Shopping, Pin, Share, Delete */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* Day / Night mode toggle */}
           <ThemeToggle compact />
 
-          {/* Paper style switcher */}
-          <button
-            onClick={() => {
-              triggerHaptic();
-              setPaperStyle(
-                paperStyle === 'grid'
-                  ? 'lines'
-                  : paperStyle === 'lines'
-                  ? 'plain'
-                  : paperStyle === 'plain'
-                  ? 'dark-grid'
-                  : 'grid'
-              );
-            }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-xs font-medium transition cursor-pointer"
-            title="Стиль страницы тетради"
-          >
-            <Grid className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span className="hidden sm:inline">
-              {paperStyle === 'grid'
-                ? 'Клетка (теплая)'
-                : paperStyle === 'lines'
-                ? 'Линейка'
-                : paperStyle === 'plain'
-                ? 'Чистый лист'
-                : 'Клетка (ночная)'}
-            </span>
-          </button>
+          {/* Paper Texture Switcher Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                triggerHaptic();
+                setShowPaperMenu(!showPaperMenu);
+              }}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-xs font-medium transition cursor-pointer"
+              title="Выбрать фактуру бумаги"
+            >
+              <Grid className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span className="hidden md:inline">{paperNames[paperStyle]}</span>
+            </button>
 
+            {showPaperMenu && (
+              <div className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-stone-900 border border-amber-900/15 dark:border-stone-700 rounded-2xl shadow-xl p-1.5 z-30 animate-in fade-in zoom-in-95">
+                <div className="text-[10px] uppercase font-bold text-stone-600 dark:text-stone-300 px-2 py-1 tracking-wider">
+                  Фактура бумаги
+                </div>
+                {(['grid', 'lines', 'kraft', 'dots', 'plain'] as PaperStyleType[]).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => {
+                      triggerHaptic();
+                      setPaperStyle(p);
+                      setShowPaperMenu(false);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-medium flex items-center justify-between transition cursor-pointer ${
+                      paperStyle === p
+                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 font-bold'
+                        : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300'
+                    }`}
+                  >
+                    <span>{paperNames[p]}</span>
+                    {paperStyle === p && <Check className="w-3.5 h-3.5 text-amber-600" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Shopping quick link if items exist */}
+          {(category === 'shopping' || shoppingItems.length > 0) && (
+            <button
+              onClick={() => onOpenShopping({ ...note, content, title })}
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl bg-emerald-100/90 hover:bg-emerald-200 dark:bg-emerald-600/30 dark:hover:bg-emerald-600/40 text-emerald-900 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 text-xs font-bold transition active:scale-95 cursor-pointer shrink-0"
+              title="Открыть корзину покупок"
+            >
+              <ShoppingCart className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+              <span>{shoppingItems.length}</span>
+            </button>
+          )}
+
+          {/* Pin note button */}
           <button
             onClick={() => {
               triggerHaptic();
               setIsPinned(!isPinned);
             }}
-            className={`p-2 rounded-xl transition cursor-pointer ${
+            className={`p-1.5 rounded-xl transition cursor-pointer shrink-0 ${
               isPinned
-                ? 'bg-amber-400/20 text-amber-800 dark:text-amber-300 border border-amber-400/40'
-                : 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-500 dark:text-stone-400 border border-stone-200 dark:border-stone-700'
+                ? 'bg-amber-400/25 text-amber-900 dark:text-amber-300 border border-amber-400/40'
+                : 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700'
             }`}
-            title="Закрепить"
+            title={isPinned ? 'Открепить' : 'Закрепить'}
           >
-            <Pin className={`w-4 h-4 ${isPinned ? 'fill-amber-500' : ''}`} />
+            <Pin className={`w-4 h-4 ${isPinned ? 'fill-amber-500 text-amber-700' : ''}`} />
           </button>
 
+          {/* Share button */}
           <button
             onClick={handleShare}
-            className="p-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition cursor-pointer"
-            title="Поделиться"
+            className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition cursor-pointer shrink-0"
+            title="Поделиться заметкой"
           >
             <Share2 className="w-4 h-4" />
           </button>
 
+          {/* Delete button */}
           <button
             onClick={() => {
               triggerHaptic();
@@ -244,73 +325,55 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 onClose();
               }
             }}
-            className="p-2 rounded-xl bg-stone-100 hover:bg-rose-100 dark:bg-stone-800 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-stone-200 dark:border-stone-700 transition cursor-pointer"
-            title="Удалить"
+            className="p-1.5 rounded-xl bg-stone-100 hover:bg-rose-100 dark:bg-stone-800 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-stone-200 dark:border-stone-700 transition cursor-pointer shrink-0"
+            title="Удалить страницу"
           >
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* 3 PRIMARY CATEGORY BUTTONS */}
-      <div className="px-4 py-2.5 bg-stone-50/80 dark:bg-stone-900 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
-        <div className="flex items-center gap-2 max-w-lg">
-          <button
-            onClick={() => {
-              triggerHaptic();
-              setCategory('note');
-            }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer ${
-              category === 'note' || category === 'general'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
-                : 'bg-stone-200/70 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Просто заметка</span>
-          </button>
-
-          <button
-            onClick={() => {
-              triggerHaptic();
-              setCategory('shopping');
-            }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer ${
-              category === 'shopping'
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/25'
-                : 'bg-stone-200/70 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-            }`}
-          >
-            <ShoppingCart className="w-3.5 h-3.5" />
-            <span>Покупки</span>
-          </button>
-
-          <button
-            onClick={() => {
-              triggerHaptic();
-              setCategory('event');
-            }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer ${
-              category === 'event'
-                ? 'bg-purple-600 text-white shadow-md shadow-purple-500/25'
-                : 'bg-stone-200/70 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            <span>События</span>
-          </button>
+      {/* CATEGORY SELECTOR (Never overflows, wrap-protected) */}
+      <div className="px-3 sm:px-4 py-2 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+          {[
+            { id: 'note', label: 'Заметка', icon: FileText, activeClass: 'bg-blue-600 text-white' },
+            { id: 'payment', label: 'Финансы', icon: Calculator, activeClass: 'bg-amber-600 text-white' },
+            { id: 'shopping', label: 'Покупки', icon: ShoppingCart, activeClass: 'bg-emerald-600 text-white' },
+            { id: 'event', label: 'События', icon: Calendar, activeClass: 'bg-purple-600 text-white' },
+          ].map((cat) => {
+            const Icon = cat.icon;
+            const isSelected = category === cat.id || (cat.id === 'note' && category === 'general');
+            return (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  triggerHaptic();
+                  setCategory(cat.id as NoteCategory);
+                }}
+                className={`flex-1 min-w-[76px] flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer whitespace-nowrap ${
+                  isSelected
+                    ? `${cat.activeClass} shadow-xs`
+                    : 'bg-stone-200/80 dark:bg-stone-800/80 text-stone-700 dark:text-stone-300 hover:bg-stone-300/80 dark:hover:bg-stone-700'
+                }`}
+              >
+                <Icon className="w-3 h-3 shrink-0" />
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* SPECIFIC EVENT CONTROLS IF "СОБЫТИЯ" IS SELECTED */}
+        {/* Specific controls if "События" is selected */}
         {category === 'event' && (
-          <div className="mt-2.5 pt-2 border-t border-amber-900/10 dark:border-stone-800 flex flex-wrap items-center gap-2 text-xs">
+          <div className="mt-2 pt-2 border-t border-amber-900/10 dark:border-stone-800 flex flex-wrap items-center gap-2 text-xs">
             <div className="flex items-center gap-1.5 bg-white dark:bg-stone-950 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-stone-800">
               <Calendar className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
               <input
                 type="date"
                 value={eventDate}
                 onChange={(e) => setEventDate(e.target.value)}
-                className="bg-transparent text-stone-900 dark:text-stone-200 text-xs focus:outline-none"
+                className="bg-transparent text-stone-900 dark:text-stone-100 text-xs focus:outline-none"
               />
             </div>
 
@@ -320,7 +383,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 type="time"
                 value={eventTime}
                 onChange={(e) => setEventTime(e.target.value)}
-                className="bg-transparent text-stone-900 dark:text-stone-200 text-xs focus:outline-none"
+                className="bg-transparent text-stone-900 dark:text-stone-100 text-xs focus:outline-none"
               />
             </div>
 
@@ -329,21 +392,266 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 triggerHaptic();
                 setIsEventDone(!isEventDone);
               }}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-xs font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-xs font-bold transition cursor-pointer ${
                 isEventDone
-                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40'
-                  : 'bg-white dark:bg-stone-950 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-stone-800 hover:text-stone-900 dark:hover:text-stone-200'
+                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40'
+                  : 'bg-white dark:bg-stone-950 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-800 hover:text-stone-900 dark:hover:text-stone-100'
               }`}
             >
-              <CheckCircle2 className="w-3.5 h-3.5" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
               <span>{isEventDone ? 'Завершено' : 'Отметить выполненным'}</span>
             </button>
           </div>
         )}
+
+        {/* PUSH NOTIFICATIONS / REMINDER CONTROLS (for Event & Shopping notes) */}
+        {(category === 'event' || category === 'shopping') && (
+          <div className="mt-2.5 pt-2.5 border-t border-amber-900/10 dark:border-stone-800 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    triggerHaptic();
+                    if (!reminderEnabled && notifPermission !== 'granted') {
+                      const granted = await requestNotificationPermission();
+                      setNotifPermission(granted ? 'granted' : 'denied');
+                    }
+                    setReminderEnabled(!reminderEnabled);
+                  }}
+                  className={`p-1.5 rounded-xl border transition cursor-pointer ${
+                    reminderEnabled
+                      ? category === 'event'
+                        ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-600'
+                        : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-600'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-400 border-stone-200 dark:border-stone-700'
+                  }`}
+                  title={reminderEnabled ? 'Выключить напоминание' : 'Включить напоминание'}
+                >
+                  {reminderEnabled ? (
+                    <BellRing className="w-4 h-4 animate-bounce" />
+                  ) : (
+                    <Bell className="w-4 h-4" />
+                  )}
+                </button>
+
+                <div>
+                  <div className="flex items-center gap-1.5 font-bold text-stone-900 dark:text-white">
+                    <span>Напоминание (Push-уведомление)</span>
+                    {reminderEnabled && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-mono">
+                        Активно
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-stone-500 dark:text-stone-400 block">
+                    {reminderEnabled
+                      ? formatReminderDateTime(reminderDateTime) || 'Время не выбрано'
+                      : category === 'event'
+                      ? 'Получить пуш перед событием'
+                      : 'Напомнить пойти за покупками'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Toggle switch */}
+              <button
+                type="button"
+                onClick={async () => {
+                  triggerHaptic();
+                  if (!reminderEnabled && notifPermission !== 'granted') {
+                    const granted = await requestNotificationPermission();
+                    setNotifPermission(granted ? 'granted' : 'denied');
+                  }
+                  setReminderEnabled(!reminderEnabled);
+                }}
+                className={`w-10 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
+                  reminderEnabled
+                    ? category === 'event'
+                      ? 'bg-purple-600'
+                      : 'bg-emerald-600'
+                    : 'bg-stone-300 dark:bg-stone-700'
+                }`}
+              >
+                <div
+                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition duration-200 ${
+                    reminderEnabled ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Expanded Reminder Configuration */}
+            {reminderEnabled && (
+              <div className="mt-2.5 pt-2 border-t border-dashed border-amber-900/15 dark:border-stone-800 space-y-2 animate-in fade-in">
+                {/* Datetime picker */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-stone-950 px-2.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 flex-1 min-w-[200px]">
+                    <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <input
+                      type="datetime-local"
+                      value={reminderDateTime}
+                      onChange={(e) => setReminderDateTime(e.target.value)}
+                      className="bg-transparent text-stone-900 dark:text-stone-100 text-xs focus:outline-none w-full"
+                    />
+                  </div>
+
+                  {/* Browser permission button / test chime */}
+                  {notifPermission !== 'granted' ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const granted = await requestNotificationPermission();
+                        setNotifPermission(granted ? 'granted' : 'denied');
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-[11px] transition shadow-xs cursor-pointer flex items-center gap-1 shrink-0"
+                    >
+                      <Bell className="w-3 h-3" />
+                      <span>Разрешить Push в браузере</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await sendTestNotification();
+                        setTestNotifSent(true);
+                        setTimeout(() => setTestNotifSent(false), 2500);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 font-medium text-[11px] transition cursor-pointer flex items-center gap-1 shrink-0"
+                      title="Проверить громкость звука и доставку пуш-уведомления"
+                    >
+                      <Volume2 className="w-3 h-3 text-emerald-600" />
+                      <span>{testNotifSent ? '✓ Звук и пуш отправлены!' : 'Тест звука & пуша'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Quick Reminder Preset Chips */}
+                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+                  <span className="text-[10px] text-stone-600 dark:text-stone-400 uppercase font-bold shrink-0">
+                    Быстро:
+                  </span>
+                  {category === 'event' ? (
+                    <>
+                      {eventDate && eventTime && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic();
+                            setReminderDateTime(`${eventDate}T${eventTime}`);
+                          }}
+                          className="px-2 py-0.8 rounded-lg bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[11px] whitespace-nowrap cursor-pointer"
+                        >
+                          В момент события
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic();
+                          let base = new Date();
+                          if (eventDate && eventTime) {
+                            base = new Date(`${eventDate}T${eventTime}`);
+                          }
+                          const target = new Date(base.getTime() - 15 * 60 * 1000);
+                          setReminderDateTime(toDateTimeLocalString(target));
+                        }}
+                        className="px-2 py-0.8 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-[11px] whitespace-nowrap cursor-pointer"
+                      >
+                        За 15 мин
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic();
+                          let base = new Date();
+                          if (eventDate && eventTime) {
+                            base = new Date(`${eventDate}T${eventTime}`);
+                          }
+                          const target = new Date(base.getTime() - 60 * 60 * 1000);
+                          setReminderDateTime(toDateTimeLocalString(target));
+                        }}
+                        className="px-2 py-0.8 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-[11px] whitespace-nowrap cursor-pointer"
+                      >
+                        За 1 час
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic();
+                          let base = new Date();
+                          if (eventDate && eventTime) {
+                            base = new Date(`${eventDate}T${eventTime}`);
+                          }
+                          const target = new Date(base.getTime() - 24 * 60 * 60 * 1000);
+                          setReminderDateTime(toDateTimeLocalString(target));
+                        }}
+                        className="px-2 py-0.8 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-[11px] whitespace-nowrap cursor-pointer"
+                      >
+                        За 1 день
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic();
+                          setReminderDateTime(toDateTimeLocalString(new Date(Date.now() + 30 * 60 * 1000)));
+                        }}
+                        className="px-2 py-0.8 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] whitespace-nowrap cursor-pointer"
+                      >
+                        +30 мин
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic();
+                          setReminderDateTime(toDateTimeLocalString(new Date(Date.now() + 60 * 60 * 1000)));
+                        }}
+                        className="px-2 py-0.8 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] whitespace-nowrap cursor-pointer"
+                      >
+                        +1 час
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic();
+                          const d = new Date();
+                          d.setHours(19, 0, 0, 0);
+                          if (d.getTime() < Date.now()) {
+                            d.setDate(d.getDate() + 1);
+                          }
+                          setReminderDateTime(toDateTimeLocalString(d));
+                        }}
+                        className="px-2 py-0.8 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-[11px] whitespace-nowrap cursor-pointer"
+                      >
+                        Сегодня 19:00
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic();
+                          const d = new Date();
+                          d.setDate(d.getDate() + 1);
+                          d.setHours(10, 0, 0, 0);
+                          setReminderDateTime(toDateTimeLocalString(d));
+                        }}
+                        className="px-2 py-0.8 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-[11px] whitespace-nowrap cursor-pointer"
+                      >
+                        Завтра 10:00
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Title Header */}
-      <div className="px-5 py-3 bg-white/70 dark:bg-stone-900/60 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
+      {/* Note Title Input with Clear High Contrast */}
+      <div className="px-4 py-2.5 bg-white/80 dark:bg-stone-900/60 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
         <input
           type="text"
           value={title}
@@ -353,88 +661,123 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               ? 'Название события или встречи...'
               : category === 'shopping'
               ? 'Список покупок в тетрадке...'
-              : 'Заголовок заметки...'
+              : category === 'payment'
+              ? 'Учет доходов, расходов и баланса...'
+              : 'Заголовок страницы тетради...'
           }
-          className="w-full bg-transparent text-lg font-bold text-stone-900 dark:text-white placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none font-mono"
+          className="w-full bg-transparent text-base sm:text-lg font-bold text-stone-900 dark:text-white placeholder-stone-500/70 dark:placeholder-stone-400 focus:outline-none font-mono"
         />
       </div>
 
-      {/* Shopping Discovery Banner (if items detected) */}
-      {(category === 'shopping' || shoppingItems.length > 0) && (
-        <div
-          onClick={() => onOpenShopping({ ...note, content, title })}
-          className="mx-4 mt-3 bg-gradient-to-r from-emerald-50 via-amber-50 to-orange-50 dark:from-emerald-950/60 dark:via-stone-900 dark:to-indigo-950/60 border border-emerald-300 dark:border-emerald-500/30 rounded-2xl p-3 flex items-center justify-between cursor-pointer hover:border-emerald-400 transition shadow-2xs"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <ShoppingCart className="w-5 h-5" />
+      {/* FINANCIAL BREAKDOWN PANEL: ПРИБЫЛЬ vs РАСХОДЫ vs ОСТАТОК */}
+      {(mathSummary.hasIncomeExpenseSplit || category === 'payment') && (
+        <div className="mx-3 sm:mx-4 mt-2 bg-white/95 dark:bg-stone-900/90 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-3 shadow-xs">
+          <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-amber-900/10 dark:border-stone-800">
+            <span className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+              <Wallet className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>Баланс: Прибыль минус Расходы</span>
+            </span>
+            {mathSummary.totalIncome > 0 && (
+              <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60">
+                Норма сбережений: {mathSummary.savingsRatePercent}%
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 font-mono text-center">
+            {/* Income */}
+            <div className="p-2 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40">
+              <span className="text-[10px] text-emerald-800 dark:text-emerald-400 block font-semibold">
+                🟢 Прибыль (доходы)
+              </span>
+              <span className="text-xs sm:text-sm font-bold text-emerald-900 dark:text-emerald-300">
+                +{formatMoney(mathSummary.totalIncome, mathSummary.currency)}
+              </span>
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-stone-900 dark:text-white">
-                  Корзина покупок: {shoppingItems.length} товаров
-                </span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 uppercase font-bold">
-                  Маркетплейсы
-                </span>
-              </div>
-              <p className="text-xs text-stone-600 dark:text-emerald-300/80">
-                Купить на WB, Ozon, в Купере, Самокате или магазинах рядом →
-              </p>
+
+            {/* Expenses */}
+            <div className="p-2 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/40">
+              <span className="text-[10px] text-rose-800 dark:text-rose-400 block font-semibold">
+                🔴 Расходы (траты)
+              </span>
+              <span className="text-xs sm:text-sm font-bold text-rose-900 dark:text-rose-300">
+                −{formatMoney(mathSummary.totalExpenses, mathSummary.currency)}
+              </span>
+            </div>
+
+            {/* Net Remaining Balance */}
+            <div className="p-2 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40">
+              <span className="text-[10px] text-amber-900 dark:text-amber-300 block font-semibold">
+                💰 Остаток (итог)
+              </span>
+              <span className={`text-xs sm:text-sm font-extrabold ${
+                mathSummary.netBalance >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+              }`}>
+                {formatMoney(mathSummary.netBalance, mathSummary.currency)}
+              </span>
             </div>
           </div>
-          <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-white dark:bg-emerald-950 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-500/40 shadow-2xs">
-            Собрать корзину
-          </span>
         </div>
       )}
 
-      {/* ТЕТРАДЬ В КЛЕТОЧКУ (Graph Paper Notebook Surface with Margins and Spirals) */}
-      <div className="flex-1 flex overflow-hidden relative m-3 rounded-2xl border border-amber-900/15 dark:border-stone-700/80 shadow-md">
-        {/* Notebook Spiral Edge */}
-        <div className="w-4 bg-gradient-to-r from-amber-100 via-amber-200 to-amber-100 dark:from-stone-900 dark:via-stone-800 dark:to-stone-900 border-r border-amber-300/50 dark:border-slate-700/80 flex flex-col justify-around py-4 shrink-0 select-none">
-          {[...Array(12)].map((_, i) => (
+      {/* НАСТОЯЩИЙ ЛИСТ БУМАГИ С ПОЛЯМИ, ПЕРФОРАЦИЕЙ И СПИРАЛЬЮ */}
+      <div className="flex-1 flex overflow-hidden relative m-2.5 sm:m-3 rounded-2xl border border-amber-900/15 dark:border-stone-700/80 notebook-paper-shadow page-dog-ear">
+        {/* Notebook Spiral Left Border (Реалистичные кольца тетради) */}
+        <div className="w-3.5 sm:w-4 bg-gradient-to-r from-amber-100 via-amber-200 to-amber-100 dark:from-stone-900 dark:via-stone-800 dark:to-stone-900 border-r border-amber-300/60 dark:border-stone-700/80 flex flex-col justify-around py-3 shrink-0 select-none">
+          {[...Array(14)].map((_, i) => (
             <div
               key={i}
-              className="w-2.5 h-1.5 bg-amber-400/80 dark:bg-stone-400/80 rounded-full mx-auto shadow-inner border border-amber-600/40 dark:border-stone-600"
+              className="w-2 sm:w-2.5 h-1 sm:h-1.5 bg-amber-500/70 dark:bg-stone-400/80 rounded-full mx-auto shadow-inner border border-amber-700/50 dark:border-stone-600"
             />
           ))}
         </div>
 
-        {/* Notebook Page Body with Graph Grid Texture */}
-        <div className={`flex-1 flex overflow-hidden relative p-4 gap-3 ${paperClass} notebook-margin-red`}>
-          {/* Main Textarea aligned on grid */}
-          <div className="flex-1 h-full relative pl-8">
+        {/* Notebook Sheet Body with selected Paper Style and Red Margins */}
+        <div className={`flex-1 flex overflow-hidden relative p-3 sm:p-4 gap-2.5 ${paperClass} notebook-margin-red notebook-punch-holes text-stone-900 dark:text-stone-100`}>
+          {/* Main Textarea aligned on paper lines/grid */}
+          <div className="flex-1 h-full relative pl-8 sm:pl-9">
             <textarea
               ref={textareaRef}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder={
-                category === 'event'
-                  ? `План события в тетради:
-14:00 — Встреча с коллегами
-Кофе-брейк: 350 * 4
-Подготовить отчет и слайды`
+                category === 'payment'
+                  ? `Учет финансов в тетрадке:
+=== Доходы ===
++ Зарплата: 95 000 руб
++ Премия: 15 000
+
+=== Расходы ===
+- Аренда: 35 000 руб
+- Продукты: 18 500
+- Коммуналка: 4 500
+
+Остаток в итоге:`
                   : category === 'shopping'
                   ? `Список продуктов в тетрадке:
 - [ ] Молоко 3.2% 2 л
-- [ ] Сыр 500 г
+- [ ] Сыр 400 г
 - [ ] Хлеб 1 шт
-- [ ] Кофе зерновой 1 пачка`
-                  : `Заметки в клеточку и расчет оплат:
-Аренда квартиры: 35000 руб
+- [ ] Кофе 1 пачка`
+                  : category === 'event'
+                  ? `План события в тетради:
+14:00 — Встреча с коллегами
+Кофе-брейк: 450 * 4
+Подготовить отчет и слайды`
+                  : `Заметки в тетрадке и быстрый расчет:
+Аренда: 35000 руб
 Свет + вода: 2400 + 1350
 Обед: 450 * 2
-Скидка: 3000 - 15%`
+Итого к оплате:`
               }
-              className="w-full h-full bg-transparent resize-none focus:outline-none font-mono text-sm leading-6 selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500"
+              className="w-full h-full bg-transparent resize-none focus:outline-none font-mono text-sm leading-6 selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-500/70 dark:placeholder-stone-400 font-medium"
             />
           </div>
 
           {/* Live Math Results Margin (Soulver / Calca style) */}
           {mathSummary.totalCalculatedLines > 0 && (
-            <div className="w-28 sm:w-36 h-full overflow-y-auto pl-2 border-l border-amber-900/15 dark:border-stone-700/50 flex flex-col font-mono text-xs select-none shrink-0">
-              <div className="text-[10px] font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+            <div className="w-28 sm:w-36 h-full overflow-y-auto pl-2 border-l border-amber-900/15 dark:border-stone-700/60 flex flex-col font-mono text-xs select-none shrink-0">
+              <div className="text-[10px] font-bold text-stone-600 dark:text-stone-300 uppercase tracking-wider mb-1 flex items-center gap-1">
                 <Calculator className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                 <span>Расчет</span>
               </div>
@@ -444,15 +787,23 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   <div key={idx} className="h-6 flex items-center justify-end">
                     {line.result !== null ? (
                       <button
-                        onClick={() => handleCopyResult(line.result!, line.currency, line)}
-                        className={`group/res flex items-center gap-1 px-2 py-0.5 rounded-md border font-semibold text-xs transition active:scale-95 shadow-2xs cursor-pointer ${
+                        onClick={() => handleCopyResult(line.result!, line.currency)}
+                        className={`group/res flex items-center gap-1 px-1.5 py-0.5 rounded-md border font-bold text-xs transition active:scale-95 shadow-2xs cursor-pointer ${
                           line.isTotalLine
-                            ? 'bg-emerald-100 hover:bg-emerald-200 border-emerald-400 text-emerald-900 dark:bg-emerald-600/40 dark:hover:bg-emerald-600/60 dark:text-emerald-200'
-                            : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800 dark:bg-emerald-950/70 dark:hover:bg-emerald-900 dark:border-emerald-500/40 dark:text-emerald-300'
+                            ? 'bg-amber-100 hover:bg-amber-200 border-amber-400 text-amber-950 dark:bg-amber-600/40 dark:text-amber-200'
+                            : line.type === 'income'
+                            ? 'bg-emerald-100 hover:bg-emerald-200 border-emerald-400 text-emerald-950 dark:bg-emerald-900/50 dark:text-emerald-200'
+                            : 'bg-rose-50 hover:bg-rose-100 border-rose-300 text-rose-950 dark:bg-rose-950/60 dark:text-rose-200'
                         }`}
-                        title={line.isTotalLine ? 'Нажмите, чтобы вставить итог в строку' : 'Нажмите, чтобы скопировать результат'}
+                        title={line.isTotalLine ? 'Итоговая строка' : `Тип: ${line.type === 'income' ? 'Прибыль' : 'Расход'}`}
                       >
-                        <span>= {formatMoney(line.result, line.currency)}</span>
+                        <span>
+                          {line.isTotalLine
+                            ? `= ${formatMoney(line.result, line.currency)}`
+                            : line.type === 'income'
+                            ? `+${formatMoney(line.result, line.currency)}`
+                            : `−${formatMoney(line.result, line.currency)}`}
+                        </span>
                         <Copy className="w-2.5 h-2.5 opacity-0 group-hover/res:opacity-100 transition" />
                       </button>
                     ) : (
@@ -474,18 +825,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
-      {/* Floating Grand Total Bar */}
+      {/* Floating Cashflow / Grand Total Bar */}
       {mathSummary.totalCalculatedLines > 0 && (
-        <div className="mx-4 mb-2 bg-white/90 dark:bg-stone-900/90 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-3 flex items-center justify-between shadow-md">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-              <Calculator className="w-4 h-4" />
+        <div className="mx-3 sm:mx-4 mb-2 bg-white/95 dark:bg-stone-900/95 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <Wallet className="w-4 h-4" />
             </div>
             <div>
-              <span className="text-[11px] text-stone-500 dark:text-stone-400 uppercase font-medium tracking-wide">
-                Всего к оплате ({mathSummary.totalCalculatedLines} поз.)
+              <span className="text-[11px] text-stone-600 dark:text-stone-400 uppercase font-bold tracking-wide">
+                {mathSummary.hasIncomeExpenseSplit ? 'Остаток в итоге:' : 'Итого к оплате:'}
               </span>
-              <div className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-400 font-mono leading-none">
+              <div className="text-base sm:text-lg font-bold text-stone-900 dark:text-white font-mono leading-none">
                 {formatMoney(mathSummary.grandTotal, mathSummary.currency)}
               </div>
             </div>
@@ -493,17 +844,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
           <button
             onClick={handleInsertGrandTotal}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition active:scale-95 shadow cursor-pointer"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition active:scale-95 shadow cursor-pointer shrink-0"
           >
             <PlusCircle className="w-3.5 h-3.5" />
-            <span>Вставить в заметку</span>
+            <span>Вставить в тетрадь</span>
           </button>
         </div>
       )}
 
-      {/* Quick Keypad Toolbar */}
+      {/* Quick Keypad Toolbar: Math + Income/Expense Presets */}
       <div className="px-3 py-2 bg-stone-100/90 dark:bg-stone-900 border-t border-amber-900/10 dark:border-stone-800 flex items-center gap-1.5 overflow-x-auto scrollbar-none shrink-0">
         {[
+          { label: '🟢 + Доход', insert: '\n+ Зарплата: 50 000 руб' },
+          { label: '🔴 - Расход', insert: '\n- Трата: 2 500 руб' },
+          { label: '💰 Остаток:', insert: '\n\nОстаток в итоге: ' },
           { label: '+', insert: ' + ' },
           { label: '-', insert: ' - ' },
           { label: '×', insert: ' * ' },
@@ -515,12 +869,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           { label: '- [ ] Чекбокс', insert: '\n- [ ] ' },
           { label: '• Список', insert: '\n• ' },
           { label: '⏰ Время', insert: ` ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} ` },
-          { label: 'Итого:', insert: '\n\nИтого: ' },
         ].map((btn, idx) => (
           <button
             key={idx}
             onClick={() => insertTextAtCursor(btn.insert)}
-            className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 font-mono text-xs font-semibold whitespace-nowrap active:scale-95 transition border border-stone-200 dark:border-stone-700/50 shadow-2xs cursor-pointer"
+            className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 font-mono text-xs font-semibold whitespace-nowrap active:scale-95 transition border border-stone-200 dark:border-stone-700/60 shadow-2xs cursor-pointer"
           >
             {btn.label}
           </button>

@@ -1,5 +1,7 @@
 export type NoteCategory = 'note' | 'shopping' | 'event' | 'payment' | 'general' | 'budget';
 
+export type PaperStyleType = 'grid' | 'dark-grid' | 'lines' | 'plain' | 'kraft' | 'dots';
+
 export interface Note {
   id: string;
   title: string;
@@ -9,19 +11,68 @@ export interface Note {
   category: NoteCategory;
   color?: string;
   isPinned?: boolean;
-  isArchived?: boolean;
   tags: string[];
   // Event specific
   eventDate?: string;
   eventTime?: string;
   isEventDone?: boolean;
   // Notebook Paper Style
-  paperStyle?: 'grid' | 'dark-grid' | 'lines' | 'plain';
+  paperStyle?: PaperStyleType;
+  // Push Notifications & Reminders (Event & Shopping)
+  reminderDateTime?: string; // ISO string e.g. "2026-10-15T14:00"
+  reminderEnabled?: boolean;
+  reminderTriggered?: boolean;
+  // Archive fields
+  isArchived?: boolean;
+  archivedMonth?: string; // e.g. "2026-09"
+  archivedAt?: number;
   // Calculated cache
   cachedTotal?: number;
+  cachedIncome?: number;
+  cachedExpenses?: number;
+  cachedNetBalance?: number;
   currency?: string;
   shoppingItemsCount?: number;
   completedItemsCount?: number;
+}
+
+export interface ArchivedBudgetMonth {
+  id: string; // e.g. "archive-budget-2026-09"
+  year: number;
+  month: number; // 1-12
+  monthName: string; // e.g. "Сентябрь 2026"
+  closedAt: number;
+  totalIncome: number;
+  totalExpenses: number;
+  netBalance: number;
+  currency: string;
+  notesCount: number;
+  notesSnapshot: Array<{
+    id: string;
+    title: string;
+    content: string;
+    income: number;
+    expenses: number;
+    balance: number;
+  }>;
+  summaryComment?: string;
+}
+
+export interface ArchivedShoppingTrip {
+  id: string;
+  sourceNoteId?: string;
+  title: string;
+  completedAt: number;
+  monthName: string; // e.g. "Октябрь 2026"
+  itemsCount: number;
+  items: Array<{
+    name: string;
+    category?: string;
+    estimatedPrice?: number;
+    isCompleted: boolean;
+  }>;
+  totalSpent?: number;
+  currency?: string;
 }
 
 export interface LineCalculation {
@@ -32,11 +83,17 @@ export interface LineCalculation {
   currency: string;
   label: string;
   isTotalLine: boolean;
+  type: 'income' | 'expense' | 'total' | 'neutral';
 }
 
 export interface NoteCalculationSummary {
   lines: LineCalculation[];
   grandTotal: number;
+  totalIncome: number;
+  totalExpenses: number;
+  netBalance: number;
+  hasIncomeExpenseSplit: boolean;
+  savingsRatePercent: number;
   currency: string;
   totalCalculatedLines: number;
   breakdownByCurrency: Record<string, number>;
@@ -51,6 +108,7 @@ export interface ShoppingItem {
   category: ShoppingCategory;
   isCompleted: boolean;
   estimatedPriceRub?: number;
+  lineIndex?: number;
 }
 
 export type ShoppingCategory =
@@ -104,8 +162,7 @@ export interface FirebaseConfig {
 export interface SyncStatus {
   isConfigured: boolean;
   isConnected: boolean;
-  lastSyncedAt: number | null;
+  lastSyncedAt: number;
   syncMethod: 'firebase' | 'local';
   roomCode?: string;
-  error?: string | null;
 }

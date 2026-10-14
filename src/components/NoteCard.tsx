@@ -11,12 +11,17 @@ import {
   ArrowRight,
   Clock,
   CheckCircle2,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  Bell,
 } from 'lucide-react';
+import { formatReminderDateTime } from '../services/notifications';
 
 interface NoteCardProps {
   note: Note;
   onOpen: (note: Note) => void;
-  onTogglePin: (noteId: string) => void;
+  onTogglePin: (id: string) => void;
   onOpenShopping: (note: Note) => void;
 }
 
@@ -26,9 +31,12 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   onTogglePin,
   onOpenShopping,
 }) => {
-  const hasPayments = note.cachedTotal !== undefined && note.cachedTotal > 0;
   const isShopping = note.category === 'shopping' || (note.shoppingItemsCount || 0) > 0;
   const isEvent = note.category === 'event';
+  const hasIncome = (note.cachedIncome || 0) > 0;
+  const hasExpenses = (note.cachedExpenses || 0) > 0;
+  const hasCashflow = hasIncome && hasExpenses;
+  const hasPayments = (note.cachedTotal !== undefined && note.cachedTotal > 0) || hasIncome || hasExpenses;
 
   const shoppingDone = note.completedItemsCount || 0;
   const shoppingTotal = note.shoppingItemsCount || 0;
@@ -41,77 +49,86 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     minute: '2-digit',
   });
 
-  // Category badge metadata
   const categoryConfig = {
-    note: {
-      label: 'Просто заметка',
-      icon: FileText,
-      bgColor: 'bg-blue-50 dark:bg-blue-500/15',
-      textColor: 'text-blue-700 dark:text-blue-300',
-      borderColor: 'border-blue-200 dark:border-blue-500/30',
-    },
     shopping: {
       label: 'Покупки',
       icon: ShoppingCart,
-      bgColor: 'bg-emerald-50 dark:bg-emerald-500/15',
-      textColor: 'text-emerald-700 dark:text-emerald-300',
-      borderColor: 'border-emerald-200 dark:border-emerald-500/30',
+      bgColor: 'bg-emerald-100/90 dark:bg-emerald-500/20',
+      textColor: 'text-emerald-900 dark:text-emerald-300 font-bold',
+      borderColor: 'border-emerald-300 dark:border-emerald-500/40',
     },
     event: {
       label: 'Событие',
       icon: Calendar,
-      bgColor: 'bg-purple-50 dark:bg-purple-500/15',
-      textColor: 'text-purple-700 dark:text-purple-300',
-      borderColor: 'border-purple-200 dark:border-purple-500/30',
+      bgColor: 'bg-purple-100/90 dark:bg-purple-500/20',
+      textColor: 'text-purple-900 dark:text-purple-300 font-bold',
+      borderColor: 'border-purple-300 dark:border-purple-500/40',
     },
     payment: {
-      label: 'Оплаты',
+      label: 'Финансы',
       icon: Calculator,
-      bgColor: 'bg-amber-50 dark:bg-amber-500/15',
-      textColor: 'text-amber-800 dark:text-amber-300',
-      borderColor: 'border-amber-200 dark:border-amber-500/30',
+      bgColor: 'bg-amber-100/90 dark:bg-amber-500/20',
+      textColor: 'text-amber-950 dark:text-amber-300 font-bold',
+      borderColor: 'border-amber-300 dark:border-amber-500/40',
     },
     general: {
       label: 'Заметка',
       icon: FileText,
-      bgColor: 'bg-stone-100 dark:bg-stone-500/15',
-      textColor: 'text-stone-700 dark:text-stone-300',
-      borderColor: 'border-stone-200 dark:border-stone-500/30',
+      bgColor: 'bg-stone-200/90 dark:bg-stone-500/20',
+      textColor: 'text-stone-900 dark:text-stone-300 font-bold',
+      borderColor: 'border-stone-300 dark:border-stone-500/40',
     },
     budget: {
       label: 'Бюджет',
-      icon: Calculator,
-      bgColor: 'bg-amber-50 dark:bg-amber-500/15',
-      textColor: 'text-amber-800 dark:text-amber-300',
-      borderColor: 'border-amber-200 dark:border-amber-500/30',
+      icon: Wallet,
+      bgColor: 'bg-emerald-100/90 dark:bg-emerald-500/20',
+      textColor: 'text-emerald-950 dark:text-emerald-300 font-bold',
+      borderColor: 'border-emerald-300 dark:border-emerald-500/40',
+    },
+    note: {
+      label: 'Заметка',
+      icon: FileText,
+      bgColor: 'bg-blue-100/90 dark:bg-blue-500/20',
+      textColor: 'text-blue-950 dark:text-blue-300 font-bold',
+      borderColor: 'border-blue-300 dark:border-blue-500/40',
     },
   }[note.category] || {
     label: 'Заметка',
     icon: FileText,
-    bgColor: 'bg-stone-100 dark:bg-stone-500/15',
-    textColor: 'text-stone-700 dark:text-stone-300',
-    borderColor: 'border-stone-200 dark:border-stone-500/30',
+    bgColor: 'bg-stone-200/90 dark:bg-stone-500/20',
+    textColor: 'text-stone-900 dark:text-stone-300 font-bold',
+    borderColor: 'border-stone-300 dark:border-stone-500/40',
   };
 
   const CatIcon = categoryConfig.icon;
 
+  // Paper styling class
+  const paperClass = {
+    'dark-grid': 'notebook-grid-dark',
+    lines: 'notebook-lines',
+    kraft: 'notebook-kraft',
+    dots: 'notebook-dots',
+    plain: 'notebook-plain',
+    grid: 'notebook-grid-warm',
+  }[note.paperStyle || 'grid'] || 'notebook-grid-warm';
+
   return (
     <div
       onClick={() => onOpen(note)}
-      className="group relative notebook-grid-warm rounded-2xl p-4 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md border border-amber-900/10 dark:border-stone-800 hover:border-amber-500/50 dark:hover:border-amber-500/50 overflow-hidden"
+      className={`group relative ${paperClass} page-dog-ear notebook-paper-shadow rounded-2xl p-4 transition-all duration-200 cursor-pointer hover:shadow-lg border border-amber-900/15 dark:border-stone-800 hover:border-amber-500/60 dark:hover:border-amber-500/50 overflow-hidden text-stone-900 dark:text-stone-100`}
     >
       {/* Тетрадный переплет: левая полоса с полями и спиралью */}
-      <div className="absolute left-0 top-0 bottom-0 w-2.5 bg-gradient-to-b from-amber-100 via-amber-200 to-amber-100 dark:from-stone-800 dark:via-stone-700 dark:to-stone-800 border-r border-amber-300/40 dark:border-stone-700/80" />
+      <div className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-b from-amber-100 via-amber-200 to-amber-100 dark:from-stone-800 dark:via-stone-700 dark:to-stone-800 border-r border-amber-300/50 dark:border-stone-700/80" />
       {/* Красные поля школьной тетради */}
-      <div className="absolute left-6 top-0 bottom-0 w-[1.5px] bg-rose-500/50 dark:bg-rose-500/40 pointer-events-none" />
+      <div className="absolute left-7 top-0 bottom-0 w-[1.5px] bg-rose-500/60 dark:bg-rose-500/40 pointer-events-none" />
 
       {/* Main card body with indent for notebook margins */}
       <div className="pl-6">
         {/* Header row: Category Pill + Title + Pin */}
         <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${categoryConfig.bgColor} ${categoryConfig.textColor} ${categoryConfig.borderColor}`}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider border shadow-2xs ${categoryConfig.bgColor} ${categoryConfig.textColor} ${categoryConfig.borderColor}`}
             >
               <CatIcon className="w-3 h-3" />
               <span>{categoryConfig.label}</span>
@@ -119,12 +136,23 @@ export const NoteCard: React.FC<NoteCardProps> = ({
 
             {/* Event date badge if set */}
             {isEvent && (note.eventDate || note.eventTime) && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
-                <Clock className="w-3 h-3" />
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 dark:bg-purple-950/80 text-purple-900 dark:text-purple-300 border border-purple-300 dark:border-purple-800/60">
+                <Clock className="w-3 h-3 text-purple-700 dark:text-purple-400" />
                 <span>
                   {note.eventDate ? new Date(note.eventDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : ''}
                   {note.eventTime ? ` в ${note.eventTime}` : ''}
                 </span>
+              </span>
+            )}
+
+            {/* Scheduled Reminder badge (Event or Shopping) */}
+            {note.reminderEnabled && note.reminderDateTime && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60"
+                title={`Установлено push-напоминание: ${formatReminderDateTime(note.reminderDateTime)}`}
+              >
+                <Bell className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                <span>{formatReminderDateTime(note.reminderDateTime)}</span>
               </span>
             )}
           </div>
@@ -134,80 +162,105 @@ export const NoteCard: React.FC<NoteCardProps> = ({
               e.stopPropagation();
               onTogglePin(note.id);
             }}
-            className={`p-1 rounded-lg transition ${
+            className={`p-1.5 rounded-lg transition active:scale-90 ${
               note.isPinned
-                ? 'text-amber-500 bg-amber-400/15'
-                : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800'
+                ? 'text-amber-700 dark:text-amber-400 bg-amber-400/25 border border-amber-400/40'
+                : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800'
             }`}
             title={note.isPinned ? 'Открепить' : 'Закрепить сверху'}
           >
-            <Pin className={`w-3.5 h-3.5 ${note.isPinned ? 'fill-amber-500' : ''}`} />
+            <Pin className={`w-3.5 h-3.5 ${note.isPinned ? 'fill-amber-500 text-amber-700' : ''}`} />
           </button>
         </div>
 
-        {/* Title */}
-        <h3 className="font-bold text-base text-stone-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-300 transition line-clamp-1 mb-1">
+        {/* High-contrast Title */}
+        <h3 className="font-bold text-base text-stone-900 dark:text-white group-hover:text-amber-800 dark:group-hover:text-amber-300 transition line-clamp-1 mb-1">
           {note.title || 'Новая запись в тетради'}
         </h3>
 
-        {/* Snippet on graph paper */}
-        <p className="text-xs text-stone-600 dark:text-stone-300 line-clamp-2 leading-relaxed mb-3 font-mono opacity-90">
-          {note.content || 'Пустая страница в клетку...'}
+        {/* High-contrast handwritten text snippet */}
+        <p className="text-xs text-stone-800 dark:text-stone-200 line-clamp-2 leading-relaxed mb-3 font-mono font-medium">
+          {note.content || 'Пустая страница в тетрадке...'}
         </p>
 
-        {/* Smart indicators: Payment sum & Shopping list */}
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {hasPayments && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 font-mono text-xs font-bold shadow-2xs">
-              <Calculator className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Итого: {formatMoney(note.cachedTotal!, note.currency)}</span>
+        {/* Financial Split: Income, Expenses, Net Balance */}
+        {hasCashflow ? (
+          <div className="bg-amber-50/70 dark:bg-stone-950/80 rounded-xl p-2.5 border border-amber-900/15 dark:border-stone-800 mb-3 space-y-1.5 font-mono text-xs">
+            <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-400 font-semibold">
+              <span className="flex items-center gap-1 text-[11px]">
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>Прибыль (доходы):</span>
+              </span>
+              <span>+{formatMoney(note.cachedIncome!, note.currency)}</span>
             </div>
-          )}
+            <div className="flex items-center justify-between text-rose-800 dark:text-rose-400 font-semibold">
+              <span className="flex items-center gap-1 text-[11px]">
+                <TrendingDown className="w-3.5 h-3.5" />
+                <span>Расходы (траты):</span>
+              </span>
+              <span>−{formatMoney(note.cachedExpenses!, note.currency)}</span>
+            </div>
+            <div className="pt-1 border-t border-amber-900/15 dark:border-stone-800 flex items-center justify-between font-bold text-stone-900 dark:text-white">
+              <span className="flex items-center gap-1 text-[11px]">
+                <Wallet className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>Остаток в итоге:</span>
+              </span>
+              <span className={(note.cachedNetBalance || 0) >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                {formatMoney(note.cachedNetBalance || 0, note.currency)}
+              </span>
+            </div>
+          </div>
+        ) : hasPayments ? (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100/80 dark:bg-emerald-500/20 border border-emerald-300 dark:border-emerald-500/30 text-emerald-950 dark:text-emerald-300 font-mono text-xs font-bold shadow-2xs mb-3 w-fit">
+            <Calculator className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+            <span>Итого: {formatMoney(note.cachedTotal || note.cachedExpenses || 0, note.currency)}</span>
+          </div>
+        ) : null}
 
-          {isShopping && shoppingTotal > 0 && (
+        {/* Shopping list button indicator */}
+        {isShopping && shoppingTotal > 0 && (
+          <div className="mb-3">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenShopping(note);
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100/80 dark:bg-amber-500/15 dark:hover:bg-amber-500/25 border border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs font-medium transition cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-100/90 hover:bg-amber-200 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 border border-amber-300 dark:border-amber-500/40 text-amber-950 dark:text-amber-300 text-xs font-semibold transition cursor-pointer"
             >
-              <ShoppingCart className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <ShoppingCart className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
               <span>
                 Куплено: {shoppingDone}/{shoppingTotal}
               </span>
-              <ArrowRight className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+              <ArrowRight className="w-3 h-3 text-amber-700 dark:text-amber-400" />
             </button>
-          )}
 
-          {isEvent && (
-            <div className="flex items-center gap-1 text-[11px] text-purple-700 dark:text-purple-300 font-medium">
-              <CheckCircle2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-              <span>{note.isEventDone ? 'Завершено' : 'Запланировано'}</span>
+            {/* Shopping progress bar */}
+            <div className="w-full bg-stone-200 dark:bg-stone-800 rounded-full h-1.5 mt-2 overflow-hidden">
+              <div
+                className="bg-emerald-600 dark:bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
+                style={{ width: `${shoppingProgress}%` }}
+              />
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Shopping progress bar */}
-        {isShopping && shoppingTotal > 0 && (
-          <div className="w-full bg-stone-200 dark:bg-stone-800 rounded-full h-1.5 mb-3 overflow-hidden">
-            <div
-              className="bg-emerald-600 dark:bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
-              style={{ width: `${shoppingProgress}%` }}
-            />
+        {isEvent && (
+          <div className="flex items-center gap-1 text-[11px] text-purple-900 dark:text-purple-300 font-bold mb-3">
+            <CheckCircle2 className="w-3.5 h-3.5 text-purple-700 dark:text-purple-400" />
+            <span>{note.isEventDone ? 'Завершено' : 'Запланировано'}</span>
           </div>
         )}
 
         {/* Footer tags and date */}
-        <div className="flex items-center justify-between text-[11px] text-stone-500 dark:text-stone-400 pt-2 border-t border-amber-900/10 dark:border-stone-800/80 font-mono">
+        <div className="flex items-center justify-between text-[11px] text-stone-700 dark:text-stone-300 pt-2 border-t border-amber-900/15 dark:border-stone-800/80 font-mono font-medium">
           <div className="flex items-center gap-1.5 line-clamp-1">
             {note.tags && note.tags.length > 0 ? (
               note.tags.slice(0, 2).map((tag) => (
                 <span
                   key={tag}
-                  className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700"
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-stone-800 text-stone-900 dark:text-stone-200 border border-stone-300/80 dark:border-stone-700 font-semibold"
                 >
-                  <Tag className="w-2.5 h-2.5" />
+                  <Tag className="w-2.5 h-2.5 text-stone-600 dark:text-stone-400" />
                   {tag}
                 </span>
               ))

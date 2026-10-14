@@ -4,11 +4,15 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Note, SyncStatus } from './types';
+import { Note, SyncStatus, ArchivedBudgetMonth, ArchivedShoppingTrip } from './types';
 import {
   loadNotes,
   saveNotes,
   enrichNoteMetadata,
+  loadArchivedBudgets,
+  saveArchivedBudgets,
+  loadArchivedShopping,
+  saveArchivedShopping,
 } from './services/storage';
 import {
   getSyncRoomCode,
@@ -16,6 +20,11 @@ import {
   syncNoteToRemote,
   deleteNoteFromRemote,
 } from './services/firebase';
+import {
+  sendPushNotification,
+  subscribeToInAppAlerts,
+  InAppAlert,
+} from './services/notifications';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
@@ -24,8 +33,10 @@ import { NoteEditor } from './components/NoteEditor';
 import { ShoppingView } from './components/ShoppingView';
 import { CalculatorView } from './components/CalculatorView';
 import { EventsView } from './components/EventsView';
+import { ArchiveView } from './components/ArchiveView';
 import { SyncAndGitHubModal } from './components/SyncAndGitHubModal';
 import { ChangelogModal } from './components/ChangelogModal';
+import { QuickTemplatesModal, NoteTemplate } from './components/QuickTemplatesModal';
 import { APP_VERSION } from './version';
 import { extractShoppingItems } from './utils/shoppingParser';
 import { NoteCategory } from './types';
@@ -39,16 +50,28 @@ import {
   Calendar,
   Sparkles,
   WifiOff,
+  Archive,
+  Bell,
+  X,
 } from 'lucide-react';
 
 export default function App() {
   const [notes, setNotes] = useState<Note[]>(() => loadNotes());
-  const [activeTab, setActiveTab] = useState<'notes' | 'shopping' | 'events' | 'calc' | 'sync'>('notes');
+  const [archivedBudgets, setArchivedBudgets] = useState<ArchivedBudgetMonth[]>(() =>
+    loadArchivedBudgets()
+  );
+  const [archivedShopping, setArchivedShopping] = useState<ArchivedShoppingTrip[]>(() =>
+    loadArchivedShopping()
+  );
+  const [inAppAlert, setInAppAlert] = useState<InAppAlert | null>(null);
+
+  const [activeTab, setActiveTab] = useState<'notes' | 'shopping' | 'events' | 'calc' | 'sync' | 'archive'>('notes');
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [shoppingTargetNote, setShoppingTargetNote] = useState<Note | null>(null);
   const [isChangelogOpen, setIsChangelogOpen] = useState<boolean>(false);
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState<boolean>(false);
 
   const isOnline = useOnlineStatus();
   const roomCode = getSyncRoomCode();
@@ -65,6 +88,99 @@ export default function App() {
   useEffect(() => {
     saveNotes(notes);
   }, [notes]);
+
+  // Save archived budgets locally
+  useEffect(() => {
+    saveArchivedBudgets(archivedBudgets);
+  }, [archivedBudgets]);
+
+  // Save archived shopping locally
+  useEffect(() => {
+    saveArchivedShopping(archivedShopping);
+  }, [archivedShopping]);
+
+  // Listen to in-app notification alerts
+  useEffect(() => {
+    const unsub = subscribeToInAppAlerts((alert) => {
+      setInAppAlert(alert);
+    });
+    return () => unsub();
+  }, []);
+
+  // Periodic Reminder / Push Notification Dispatcher
+  useEffect(() => {
+    const checkReminders = () => {
+      const now = Date.now();
+      let updatedAny = false;
+
+      setNotes((prevNotes) => {
+        const nextNotes = prevNotes.map((n) => {
+          if (!n.reminderEnabled || n.reminderTriggered) return n;
+
+          let shouldTrigger = false;
+          let reminderTime = 0;
+
+          if (n.reminderDateTime) {
+            const t = new Date(n.reminderDateTime).getTime();
+            if (!isNaN(t) && now >= t) {
+              shouldTrigger = true;
+              reminderTime = t;
+            }
+          } else if (n.category === 'event' && n.eventDate && n.eventTime) {
+            const t = new Date(`${n.eventDate}T${n.eventTime}`).getTime();
+            if (!isNaN(t) && now >= t) {
+              shouldTrigger = true;
+              reminderTime = t;
+            }
+          }
+
+          // Trigger if due and not more than 24 hours in the past
+          if (shouldTrigger && now - reminderTime < 24 * 60 * 60 * 1000) {
+            updatedAny = true;
+            const title =
+              n.category === 'shopping'
+                ? `🛒 Напоминание о покупках: ${n.title || 'Список товаров'}`
+                : `📅 Событие наступило: ${n.title || 'Событие в тетради'}`;
+            const body =
+              n.content.trim().slice(0, 100) ||
+              (n.category === 'shopping'
+                ? 'Пора проверить список покупок в NotebookSmart'
+                : 'Время запланированного мероприятия');
+
+            sendPushNotification(title, {
+              body,
+              noteId: n.id,
+              category: (n.category === 'shopping' || n.category === 'event' ? n.category : 'note'),
+            });
+
+            return {
+              ...n,
+              reminderTriggered: true,
+            };
+          }
+
+          return n;
+        });
+
+        return updatedAny ? nextNotes : prevNotes;
+      });
+    };
+
+    checkReminders();
+    const intervalId = setInterval(checkReminders, 12000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkReminders();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   // Firebase remote synchronization listener
   useEffect(() => {
@@ -125,8 +241,16 @@ export default function App() {
   // Filter notes
   const filteredNotes = useMemo(() => {
     return notes.filter((n) => {
+      // Archive filter behavior
+      if (activeCategoryFilter !== 'archive' && n.isArchived) {
+        return false;
+      }
+      if (activeCategoryFilter === 'archive' && !n.isArchived) {
+        return false;
+      }
+
       // Category filter
-      if (activeCategoryFilter !== 'all') {
+      if (activeCategoryFilter !== 'all' && activeCategoryFilter !== 'archive') {
         if (activeCategoryFilter === 'note') {
           if (n.category !== 'note' && n.category !== 'general') return false;
         } else if (activeCategoryFilter === 'shopping') {
@@ -177,7 +301,7 @@ export default function App() {
           : category === 'event'
           ? `План события:\n14:00 — Встреча\nКофе-брейк: 350 * 3\nПодготовить материалы`
           : category === 'payment'
-          ? `Счета к оплате:\nАренда: 35000 руб\nКоммуналка: 2400 + 850\nИнтернет: 800\n\nИтого:`
+          ? `Учет финансов в тетрадке:\n\n=== Доходы ===\n+ Зарплата: 95 000 руб\n+ Премия: 15 000\n\n=== Расходы ===\n- Аренда квартиры: 35 000 руб\n- Продукты: 18 500\n- Коммуналка: 4 500\n\nОстаток в итоге:`
           : '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -198,6 +322,25 @@ export default function App() {
       tags: [],
     };
 
+    const enriched = enrichNoteMetadata(newNote);
+    setNotes((prev) => [enriched, ...prev]);
+    setSelectedNote(enriched);
+    syncNoteToRemote(roomCode, enriched);
+  };
+
+  const handleApplyTemplate = (tpl: NoteTemplate) => {
+    triggerHaptic();
+    const newNote: Note = {
+      id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      title: tpl.title,
+      content: tpl.content,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      category: tpl.category,
+      paperStyle: tpl.paperStyle,
+      isPinned: false,
+      tags: [tpl.category === 'payment' ? 'Финансы' : tpl.category === 'shopping' ? 'Покупки' : 'Планы'],
+    };
     const enriched = enrichNoteMetadata(newNote);
     setNotes((prev) => [enriched, ...prev]);
     setSelectedNote(enriched);
@@ -244,14 +387,161 @@ export default function App() {
     setActiveTab('shopping');
   };
 
+  // Archive Handlers
+  const handleCloseCurrentMonth = (
+    monthName: string,
+    selectedNoteIds: string[],
+    comment?: string
+  ) => {
+    triggerHaptic();
+    const selectedNotes = notes.filter((n) => selectedNoteIds.includes(n.id));
+    let totalIncome = 0;
+    let totalExpenses = 0;
+
+    selectedNotes.forEach((n) => {
+      totalIncome += n.cachedIncome || 0;
+      totalExpenses += n.cachedExpenses || 0;
+    });
+
+    const netBalance = totalIncome - totalExpenses;
+
+    const newArchivedMonth: ArchivedBudgetMonth = {
+      id: `archive-budget-${Date.now()}`,
+      year: new Date().getFullYear(),
+      month: new Date().getMonth() + 1,
+      monthName,
+      closedAt: Date.now(),
+      totalIncome,
+      totalExpenses,
+      netBalance,
+      currency: selectedNotes[0]?.currency || 'руб',
+      notesCount: selectedNotes.length,
+      summaryComment: comment,
+      notesSnapshot: selectedNotes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        content: n.content,
+        income: n.cachedIncome || 0,
+        expenses: n.cachedExpenses || 0,
+        balance: n.cachedNetBalance || 0,
+      })),
+    };
+
+    setArchivedBudgets((prev) => [newArchivedMonth, ...prev]);
+
+    // Mark selected notes as archived so they don't clutter the active list
+    setNotes((prev) =>
+      prev.map((n) =>
+        selectedNoteIds.includes(n.id)
+          ? { ...n, isArchived: true, archivedMonth: monthName, archivedAt: Date.now() }
+          : n
+      )
+    );
+  };
+
+  const handleArchiveCompletedShoppingNotes = () => {
+    triggerHaptic();
+    const notesToArchive = notes.filter((n) => {
+      if (n.isArchived) return false;
+      const items = extractShoppingItems(n.content);
+      return items.length > 0 && items.every((i) => i.isCompleted);
+    });
+
+    if (notesToArchive.length === 0) return;
+
+    const newTrips: ArchivedShoppingTrip[] = notesToArchive.map((n) => {
+      const items = extractShoppingItems(n.content);
+      return {
+        id: `archive-shopping-${n.id}-${Date.now()}`,
+        sourceNoteId: n.id,
+        title: n.title || 'Завершенный список покупок',
+        completedAt: Date.now(),
+        monthName: new Date().toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }),
+        itemsCount: items.length,
+        totalSpent: n.cachedTotal,
+        currency: n.currency || 'руб',
+        items: items.map((i) => ({
+          name: i.name,
+          category: i.category,
+          estimatedPrice: i.estimatedPriceRub,
+          isCompleted: true,
+        })),
+      };
+    });
+
+    setArchivedShopping((prev) => [...newTrips, ...prev]);
+
+    const idsToArchive = new Set(notesToArchive.map((n) => n.id));
+    setNotes((prev) =>
+      prev.map((n) =>
+        idsToArchive.has(n.id)
+          ? { ...n, isArchived: true, archivedAt: Date.now() }
+          : n
+      )
+    );
+  };
+
+  const handleRestoreNote = (restoredNote: Note) => {
+    const enriched = enrichNoteMetadata(restoredNote);
+    setNotes((prev) => [enriched, ...prev]);
+    setSelectedNote(enriched);
+    syncNoteToRemote(roomCode, enriched);
+  };
+
   return (
     <div className="min-h-screen bg-[#faf7f2] dark:bg-[#141210] text-stone-900 dark:text-stone-100 flex flex-col font-sans select-none transition-colors duration-200">
+      {/* In-App Push Reminder Toast Banner */}
+      {inAppAlert && (
+        <div className="fixed top-16 left-4 right-4 z-50 max-w-md mx-auto bg-stone-900/95 dark:bg-stone-100/95 text-white dark:text-stone-900 p-4 rounded-3xl shadow-2xl backdrop-blur-md border border-amber-500/30 animate-in fade-in slide-in-from-top-4 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-2xl bg-amber-500/20 text-amber-400 dark:text-amber-600 shrink-0">
+              <Bell className="w-5 h-5 animate-bounce" />
+            </div>
+            <div>
+              <h4 className="font-bold text-xs uppercase tracking-wider text-amber-400 dark:text-amber-600 mb-0.5">
+                {inAppAlert.category === 'shopping' ? '🛒 Покупки' : '📅 Событие'}
+              </h4>
+              <p className="font-extrabold text-sm text-white dark:text-stone-900">
+                {inAppAlert.title}
+              </p>
+              {inAppAlert.body && (
+                <p className="text-xs text-stone-300 dark:text-stone-600 mt-0.5 line-clamp-2">
+                  {inAppAlert.body}
+                </p>
+              )}
+              {inAppAlert.noteId && (
+                <button
+                  onClick={() => {
+                    const target = notes.find((n) => n.id === inAppAlert.noteId);
+                    if (target) {
+                      setSelectedNote(target);
+                    }
+                    setInAppAlert(null);
+                  }}
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-amber-400 dark:text-amber-600 underline hover:no-underline cursor-pointer"
+                >
+                  <span>Открыть страницу в тетрадке</span>
+                  <span>→</span>
+                </button>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setInAppAlert(null)}
+            className="p-1 text-stone-400 hover:text-white dark:hover:text-stone-900 rounded-lg transition cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Mobile App Header */}
       <Header
         syncStatus={syncStatus}
         isOnline={isOnline}
         onOpenSync={() => setActiveTab('sync')}
         onOpenChangelog={() => setIsChangelogOpen(true)}
+        onOpenTemplates={() => setIsTemplatesOpen(true)}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
@@ -268,7 +558,8 @@ export default function App() {
                 { id: 'note', label: '📝 Просто заметки' },
                 { id: 'shopping', label: '🛒 Покупки' },
                 { id: 'event', label: '📅 События' },
-                { id: 'payment', label: '🧮 Оплаты' },
+                { id: 'payment', label: '💰 Финансы & Бюджет' },
+                { id: 'archive', label: '📦 Архив' },
               ].map((c) => (
                 <button
                   key={c.id}
@@ -276,10 +567,10 @@ export default function App() {
                     triggerHaptic();
                     setActiveCategoryFilter(c.id);
                   }}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition active:scale-95 cursor-pointer ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition active:scale-95 cursor-pointer ${
                     activeCategoryFilter === c.id
-                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm shadow-orange-500/25'
-                      : 'bg-stone-200/80 hover:bg-stone-300/80 text-stone-700 dark:bg-stone-900/80 dark:hover:bg-stone-800 dark:text-stone-300 border border-stone-300/60 dark:border-stone-800'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-stone-200/90 hover:bg-stone-300 text-stone-800 dark:bg-stone-900/80 dark:hover:bg-stone-800 dark:text-stone-300 border border-stone-300/80 dark:border-stone-800'
                   }`}
                 >
                   {c.label}
@@ -386,6 +677,20 @@ export default function App() {
             }}
           />
         )}
+
+        {/* TAB 6: ARCHIVE OF PAST MONTHS & COMPLETED SHOPPING */}
+        {activeTab === 'archive' && (
+          <ArchiveView
+            notes={notes}
+            archivedBudgets={archivedBudgets}
+            archivedShopping={archivedShopping}
+            onSaveArchivedBudgets={setArchivedBudgets}
+            onSaveArchivedShopping={setArchivedShopping}
+            onRestoreNote={handleRestoreNote}
+            onCloseCurrentMonth={handleCloseCurrentMonth}
+            onArchiveCompletedShoppingNotes={handleArchiveCompletedShoppingNotes}
+          />
+        )}
       </main>
 
       {/* Fullscreen Note Editor Modal / View */}
@@ -410,6 +715,7 @@ export default function App() {
           setActiveTab(tab);
         }}
         onNewNote={(cat) => handleCreateNewNote(cat)}
+        onOpenTemplates={() => setIsTemplatesOpen(true)}
         pendingShoppingCount={pendingShoppingCount}
         upcomingEventsCount={upcomingEventsCount}
       />
@@ -418,6 +724,13 @@ export default function App() {
       <ChangelogModal
         isOpen={isChangelogOpen}
         onClose={() => setIsChangelogOpen(false)}
+      />
+
+      {/* Everyday Quick Life Templates Modal */}
+      <QuickTemplatesModal
+        isOpen={isTemplatesOpen}
+        onClose={() => setIsTemplatesOpen(false)}
+        onApplyTemplate={handleApplyTemplate}
       />
     </div>
   );
