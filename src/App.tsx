@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Note, SyncStatus, ArchivedBudgetMonth, ArchivedShoppingTrip } from './types';
+import { Note, SyncStatus, ArchivedBudgetMonth, ArchivedShoppingTrip, SecurityConfig, NoteCategory } from './types';
 import {
   loadNotes,
   saveNotes,
@@ -14,6 +14,11 @@ import {
   loadArchivedShopping,
   saveArchivedShopping,
 } from './services/storage';
+import {
+  loadSecurityConfig,
+  saveSecurityConfig,
+  isAutoLockExpired,
+} from './services/security';
 import {
   getSyncRoomCode,
   subscribeToRemoteNotes,
@@ -25,7 +30,9 @@ import {
   subscribeToInAppAlerts,
   InAppAlert,
 } from './services/notifications';
+import { extractSmartTagsLocally } from './services/aiTagging';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { useSwipeBack } from './hooks/useSwipeBack';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { NoteCard } from './components/NoteCard';
@@ -34,12 +41,15 @@ import { ShoppingView } from './components/ShoppingView';
 import { CalculatorView } from './components/CalculatorView';
 import { EventsView } from './components/EventsView';
 import { ArchiveView } from './components/ArchiveView';
+import { LockScreen } from './components/LockScreen';
+import { SecuritySettingsModal } from './components/SecuritySettingsModal';
 import { SyncAndGitHubModal } from './components/SyncAndGitHubModal';
 import { ChangelogModal } from './components/ChangelogModal';
 import { QuickTemplatesModal, NoteTemplate } from './components/QuickTemplatesModal';
+import { ShareNoteModal } from './components/ShareNoteModal';
+import { AboutView } from './components/AboutView';
 import { APP_VERSION } from './version';
 import { extractShoppingItems } from './utils/shoppingParser';
-import { NoteCategory } from './types';
 import {
   Plus,
   Search,
@@ -53,10 +63,12 @@ import {
   Archive,
   Bell,
   X,
+  Tag,
 } from 'lucide-react';
 
 export default function App() {
   const [notes, setNotes] = useState<Note[]>(() => loadNotes());
+  const [sharingNote, setSharingNote] = useState<Note | null>(null);
   const [archivedBudgets, setArchivedBudgets] = useState<ArchivedBudgetMonth[]>(() =>
     loadArchivedBudgets()
   );
@@ -65,13 +77,76 @@ export default function App() {
   );
   const [inAppAlert, setInAppAlert] = useState<InAppAlert | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'notes' | 'shopping' | 'events' | 'calc' | 'sync' | 'archive'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'shopping' | 'events' | 'calc' | 'sync' | 'archive' | 'about'>('notes');
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [shoppingTargetNote, setShoppingTargetNote] = useState<Note | null>(null);
   const [isChangelogOpen, setIsChangelogOpen] = useState<boolean>(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState<boolean>(false);
+
+  // Local Passcode & Biometric Security
+  const [securityConfig, setSecurityConfig] = useState<SecurityConfig>(() => loadSecurityConfig());
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+  const [lastUnlockedAt, setLastUnlockedAt] = useState<number>(0);
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState<boolean>(false);
+  const [pendingNoteToOpen, setPendingNoteToOpen] = useState<Note | null>(null);
+  const [isLockScreenOpenForNote, setIsLockScreenOpenForNote] = useState<boolean>(false);
+
+  // Check if a category is configured as protected
+  const isCategoryProtected = (cat: string) => {
+    if (!securityConfig.isPasscodeSet) return false;
+    if (cat === 'calc' || cat === 'payment' || cat === 'budget') return securityConfig.protectFinance;
+    if (cat === 'shopping') return securityConfig.protectShopping;
+    if (cat === 'archive') return securityConfig.protectArchive;
+    return false;
+  };
+
+  // Check if a category or tab is currently locked
+  const isSectionLocked = (cat: string) => {
+    if (!isCategoryProtected(cat)) return false;
+    if (!isUnlocked) return true;
+    if (isAutoLockExpired(lastUnlockedAt, securityConfig.autoLockMinutes)) {
+      return true;
+    }
+    return false;
+  };
+
+  // Auto-lock when tab is hidden or timeout expires
+  useEffect(() => {
+    const handleVisibilityOrBlur = () => {
+      if (!securityConfig.isPasscodeSet) return;
+      if (document.visibilityState === 'hidden') {
+        if (securityConfig.autoLockMinutes === 0) {
+          setIsUnlocked(false);
+        }
+      } else if (document.visibilityState === 'visible') {
+        if (isAutoLockExpired(lastUnlockedAt, securityConfig.autoLockMinutes)) {
+          setIsUnlocked(false);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrBlur);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrBlur);
+    };
+  }, [securityConfig, lastUnlockedAt]);
+
+  const handleUnlockSuccess = () => {
+    setIsUnlocked(true);
+    setLastUnlockedAt(Date.now());
+    if (pendingNoteToOpen) {
+      setSelectedNote(pendingNoteToOpen);
+      setPendingNoteToOpen(null);
+    }
+    setIsLockScreenOpenForNote(false);
+  };
+
+  const handleLockNow = () => {
+    setIsUnlocked(false);
+    setLastUnlockedAt(0);
+  };
 
   const isOnline = useOnlineStatus();
   const roomCode = getSyncRoomCode();
@@ -292,17 +367,23 @@ export default function App() {
     eventTime?: string
   ) => {
     triggerHaptic();
+    const initialContent =
+      category === 'shopping'
+        ? `Список покупок в тетради:\n- [ ] Молоко 3.2% 1 л\n- [ ] Хлеб 1 шт\n- [ ] Сыр 300 г\n- [ ] Яйца 10 шт`
+        : category === 'event'
+        ? `План события:\n14:00 — Встреча\nКофе-брейк: 350 * 3\nПодготовить материалы`
+        : category === 'payment'
+        ? `Учет финансов в тетрадке:\n\n=== Доходы ===\n+ Зарплата: 95 000 руб\n+ Премия: 15 000\n\n=== Расходы ===\n- Аренда квартиры: 35 000 руб\n- Продукты: 18 500\n- Коммуналка: 4 500\n\nОстаток в итоге:`
+        : '';
+
+    const initialTags = initialContent
+      ? extractSmartTagsLocally(defaultTitle || '', initialContent, category)
+      : [];
+
     const newNote: Note = {
       id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       title: defaultTitle || '',
-      content:
-        category === 'shopping'
-          ? `Список покупок в тетради:\n- [ ] Молоко 3.2% 1 л\n- [ ] Хлеб 1 шт\n- [ ] Сыр 300 г\n- [ ] Яйца 10 шт`
-          : category === 'event'
-          ? `План события:\n14:00 — Встреча\nКофе-брейк: 350 * 3\nПодготовить материалы`
-          : category === 'payment'
-          ? `Учет финансов в тетрадке:\n\n=== Доходы ===\n+ Зарплата: 95 000 руб\n+ Премия: 15 000\n\n=== Расходы ===\n- Аренда квартиры: 35 000 руб\n- Продукты: 18 500\n- Коммуналка: 4 500\n\nОстаток в итоге:`
-          : '',
+      content: initialContent,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       category,
@@ -319,7 +400,7 @@ export default function App() {
           ? '#8b5cf6'
           : '#6366f1',
       isPinned: false,
-      tags: [],
+      tags: initialTags,
     };
 
     const enriched = enrichNoteMetadata(newNote);
@@ -330,6 +411,7 @@ export default function App() {
 
   const handleApplyTemplate = (tpl: NoteTemplate) => {
     triggerHaptic();
+    const templateTags = extractSmartTagsLocally(tpl.title, tpl.content, tpl.category);
     const newNote: Note = {
       id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       title: tpl.title,
@@ -339,7 +421,7 @@ export default function App() {
       category: tpl.category,
       paperStyle: tpl.paperStyle,
       isPinned: false,
-      tags: [tpl.category === 'payment' ? 'Финансы' : tpl.category === 'shopping' ? 'Покупки' : 'Планы'],
+      tags: templateTags.length > 0 ? templateTags : [tpl.category === 'payment' ? '#finances' : tpl.category === 'shopping' ? '#shopping' : '#personal'],
     };
     const enriched = enrichNoteMetadata(newNote);
     setNotes((prev) => [enriched, ...prev]);
@@ -381,7 +463,23 @@ export default function App() {
     });
   };
 
+  const handleOpenNote = (note: Note) => {
+    triggerHaptic();
+    if (isSectionLocked(note.category)) {
+      setPendingNoteToOpen(note);
+      setIsLockScreenOpenForNote(true);
+      return;
+    }
+    setSelectedNote(note);
+  };
+
   const handleOpenShoppingFromNote = (n: Note) => {
+    triggerHaptic();
+    if (isSectionLocked('shopping')) {
+      setPendingNoteToOpen(n);
+      setIsLockScreenOpenForNote(true);
+      return;
+    }
     setSelectedNote(null);
     setShoppingTargetNote(n);
     setActiveTab('shopping');
@@ -488,6 +586,19 @@ export default function App() {
     syncNoteToRemote(roomCode, enriched);
   };
 
+  // Mobile swipe navigation: swiping horizontally returns to the main notes tab without minimizing app
+  useSwipeBack({
+    onBack: () => {
+      triggerHaptic();
+      if (selectedNote) {
+        setSelectedNote(null);
+      } else if (activeTab !== 'notes') {
+        setActiveTab('notes');
+      }
+    },
+    enabled: activeTab !== 'notes' || selectedNote !== null,
+  });
+
   return (
     <div className="min-h-screen bg-[#faf7f2] dark:bg-[#141210] text-stone-900 dark:text-stone-100 flex flex-col font-sans select-none transition-colors duration-200">
       {/* In-App Push Reminder Toast Banner */}
@@ -542,6 +653,9 @@ export default function App() {
         onOpenSync={() => setActiveTab('sync')}
         onOpenChangelog={() => setIsChangelogOpen(true)}
         onOpenTemplates={() => setIsTemplatesOpen(true)}
+        onOpenSecurity={() => setIsSecurityModalOpen(true)}
+        isSecurityConfigured={securityConfig.isPasscodeSet}
+        isUnlocked={isUnlocked}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
@@ -551,31 +665,69 @@ export default function App() {
         {/* TAB 1: NOTES LIST */}
         {activeTab === 'notes' && (
           <div className="pb-24">
-            {/* Category Filter Chips */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none mb-3">
-              {[
-                { id: 'all', label: 'Все записи' },
-                { id: 'note', label: '📝 Просто заметки' },
-                { id: 'shopping', label: '🛒 Покупки' },
-                { id: 'event', label: '📅 События' },
-                { id: 'payment', label: '💰 Финансы & Бюджет' },
-                { id: 'archive', label: '📦 Архив' },
-              ].map((c) => (
+            {/* Responsive Category Filter Tabs (Fits cleanly across mobile screens) */}
+            <div className="relative mb-3">
+              <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto pb-1 scrollbar-none scroll-smooth">
+                {[
+                  { id: 'all', label: 'Все записи', shortLabel: 'Все', icon: '📋' },
+                  { id: 'note', label: 'Заметки', shortLabel: 'Заметки', icon: '📝' },
+                  { id: 'shopping', label: 'Покупки', shortLabel: 'Покупки', icon: '🛒' },
+                  { id: 'event', label: 'События', shortLabel: 'События', icon: '📅' },
+                  { id: 'payment', label: 'Финансы', shortLabel: 'Финансы', icon: '💰' },
+                  { id: 'archive', label: 'Архив', shortLabel: 'Архив', icon: '📦' },
+                ].map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      triggerHaptic();
+                      setActiveCategoryFilter(c.id);
+                    }}
+                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-1 px-2 sm:px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition active:scale-95 cursor-pointer shrink-0 ${
+                      activeCategoryFilter === c.id
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-stone-200/90 hover:bg-stone-300 text-stone-800 dark:bg-stone-900/80 dark:hover:bg-stone-800 dark:text-stone-300 border border-stone-300/80 dark:border-stone-800'
+                    }`}
+                  >
+                    <span className="text-xs">{c.icon}</span>
+                    <span className="text-[11px] sm:text-xs">{c.shortLabel}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick Tag Filter Chips */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none mb-3 text-xs">
+              <span className="text-[10px] text-stone-500 dark:text-stone-400 uppercase font-bold shrink-0 flex items-center gap-1">
+                <Tag className="w-2.5 h-2.5 text-amber-500" />
+                <span>Теги:</span>
+              </span>
+              {['#work', '#personal', '#urgent', '#shopping', '#finances', '#health'].map((tg) => {
+                const isSelected = searchQuery.toLowerCase().includes(tg.toLowerCase());
+                return (
+                  <button
+                    key={tg}
+                    onClick={() => {
+                      triggerHaptic();
+                      setSearchQuery(isSelected ? '' : tg);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold transition active:scale-95 cursor-pointer whitespace-nowrap ${
+                      isSelected
+                        ? 'bg-amber-600 text-white shadow-2xs'
+                        : 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200/80 dark:border-stone-700'
+                    }`}
+                  >
+                    {tg}
+                  </button>
+                );
+              })}
+              {searchQuery && (
                 <button
-                  key={c.id}
-                  onClick={() => {
-                    triggerHaptic();
-                    setActiveCategoryFilter(c.id);
-                  }}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition active:scale-95 cursor-pointer ${
-                    activeCategoryFilter === c.id
-                      ? 'bg-amber-600 text-white shadow-xs'
-                      : 'bg-stone-200/90 hover:bg-stone-300 text-stone-800 dark:bg-stone-900/80 dark:hover:bg-stone-800 dark:text-stone-300 border border-stone-300/80 dark:border-stone-800'
-                  }`}
+                  onClick={() => setSearchQuery('')}
+                  className="text-[11px] text-amber-700 dark:text-amber-400 font-bold hover:underline cursor-pointer ml-1 whitespace-nowrap"
                 >
-                  {c.label}
+                  Сбросить ({searchQuery})
                 </button>
-              ))}
+              )}
             </div>
 
             {/* Notes Grid */}
@@ -622,9 +774,12 @@ export default function App() {
                   <NoteCard
                     key={note.id}
                     note={note}
-                    onOpen={(n) => setSelectedNote(n)}
+                    isLocked={isSectionLocked(note.category)}
+                    onOpen={handleOpenNote}
                     onTogglePin={handleTogglePin}
                     onOpenShopping={handleOpenShoppingFromNote}
+                    onTagClick={(tag) => setSearchQuery(tag)}
+                    onShare={(n) => setSharingNote(n)}
                   />
                 ))}
               </div>
@@ -634,18 +789,32 @@ export default function App() {
 
         {/* TAB 2: SHOPPING & WHERE TO BUY */}
         {activeTab === 'shopping' && (
-          <ShoppingView
-            note={shoppingTargetNote}
-            allNotes={notes.filter((n) => n.category === 'shopping' || (n.shoppingItemsCount || 0) > 0)}
-            onUpdateNote={handleUpdateNote}
-          />
+          isSectionLocked('shopping') ? (
+            <div className="py-6">
+              <LockScreen
+                category="shopping"
+                title="Списки покупок под защитой"
+                subtitle="Введите PIN-код или используйте биометрию для доступа к спискам товаров"
+                biometricEnabled={securityConfig.biometricEnabled}
+                credentialId={securityConfig.credentialId}
+                onUnlock={handleUnlockSuccess}
+                onCancel={() => setActiveTab('notes')}
+              />
+            </div>
+          ) : (
+            <ShoppingView
+              note={shoppingTargetNote}
+              allNotes={notes.filter((n) => n.category === 'shopping' || (n.shoppingItemsCount || 0) > 0)}
+              onUpdateNote={handleUpdateNote}
+            />
+          )
         )}
 
         {/* TAB 3: EVENTS & CALENDAR */}
         {activeTab === 'events' && (
           <EventsView
             notes={notes}
-            onOpenNote={(n) => setSelectedNote(n)}
+            onOpenNote={handleOpenNote}
             onCreateEvent={(title, date, time) => handleCreateNewNote('event', title, date, time)}
             onToggleEventDone={handleToggleEventDone}
           />
@@ -653,11 +822,25 @@ export default function App() {
 
         {/* TAB 4: PAYMENTS & CALCULATOR */}
         {activeTab === 'calc' && (
-          <CalculatorView
-            notes={notes}
-            onOpenNote={(n) => setSelectedNote(n)}
-            onCreatePaymentNote={() => handleCreateNewNote('payment')}
-          />
+          isSectionLocked('calc') ? (
+            <div className="py-6">
+              <LockScreen
+                category="payment"
+                title="Финансы & Бюджет под защитой"
+                subtitle="Введите PIN-код или используйте биометрию для просмотра баланса, доходов и расходов"
+                biometricEnabled={securityConfig.biometricEnabled}
+                credentialId={securityConfig.credentialId}
+                onUnlock={handleUnlockSuccess}
+                onCancel={() => setActiveTab('notes')}
+              />
+            </div>
+          ) : (
+            <CalculatorView
+              notes={notes}
+              onOpenNote={handleOpenNote}
+              onCreatePaymentNote={() => handleCreateNewNote('payment')}
+            />
+          )
         )}
 
         {/* TAB 5: SYNC & GITHUB */}
@@ -680,15 +863,43 @@ export default function App() {
 
         {/* TAB 6: ARCHIVE OF PAST MONTHS & COMPLETED SHOPPING */}
         {activeTab === 'archive' && (
-          <ArchiveView
+          isSectionLocked('archive') ? (
+            <div className="py-6">
+              <LockScreen
+                category="archive"
+                title="Архив данных под защитой"
+                subtitle="Введите PIN-код или используйте биометрию для доступа к закрытым периодам"
+                biometricEnabled={securityConfig.biometricEnabled}
+                credentialId={securityConfig.credentialId}
+                onUnlock={handleUnlockSuccess}
+                onCancel={() => setActiveTab('notes')}
+              />
+            </div>
+          ) : (
+            <ArchiveView
+              notes={notes}
+              archivedBudgets={archivedBudgets}
+              archivedShopping={archivedShopping}
+              onSaveArchivedBudgets={setArchivedBudgets}
+              onSaveArchivedShopping={setArchivedShopping}
+              onRestoreNote={handleRestoreNote}
+              onCloseCurrentMonth={handleCloseCurrentMonth}
+              onArchiveCompletedShoppingNotes={handleArchiveCompletedShoppingNotes}
+            />
+          )
+        )}
+
+        {/* TAB 7: ABOUT APP (Информация о приложении, версия сборки, лицензия) */}
+        {activeTab === 'about' && (
+          <AboutView
             notes={notes}
-            archivedBudgets={archivedBudgets}
-            archivedShopping={archivedShopping}
-            onSaveArchivedBudgets={setArchivedBudgets}
-            onSaveArchivedShopping={setArchivedShopping}
-            onRestoreNote={handleRestoreNote}
-            onCloseCurrentMonth={handleCloseCurrentMonth}
-            onArchiveCompletedShoppingNotes={handleArchiveCompletedShoppingNotes}
+            onOpenChangelog={() => setIsChangelogOpen(true)}
+            onOpenSecurity={() => setIsSecurityModalOpen(true)}
+            onRestoreNotes={(importedNotes) => {
+              const enriched = importedNotes.map(enrichNoteMetadata);
+              setNotes((prev) => [...enriched, ...prev]);
+              saveNotes([...enriched, ...notes]);
+            }}
           />
         )}
       </main>
@@ -732,6 +943,53 @@ export default function App() {
         onClose={() => setIsTemplatesOpen(false)}
         onApplyTemplate={handleApplyTemplate}
       />
+
+      {/* In-place Note Lock Screen Dialog */}
+      {isLockScreenOpenForNote && pendingNoteToOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#fffdfa] dark:bg-[#1a1715] rounded-3xl border border-amber-900/20 dark:border-stone-800 shadow-2xl max-w-sm w-full p-2 relative">
+            <LockScreen
+              category={
+                pendingNoteToOpen.category === 'payment'
+                  ? 'payment'
+                  : pendingNoteToOpen.category === 'shopping'
+                  ? 'shopping'
+                  : 'general'
+              }
+              title={pendingNoteToOpen.title ? `Защищено: ${pendingNoteToOpen.title}` : undefined}
+              biometricEnabled={securityConfig.biometricEnabled}
+              credentialId={securityConfig.credentialId}
+              onUnlock={handleUnlockSuccess}
+              onCancel={() => {
+                setIsLockScreenOpenForNote(false);
+                setPendingNoteToOpen(null);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Security and Passcode Settings Modal */}
+      <SecuritySettingsModal
+        isOpen={isSecurityModalOpen}
+        onClose={() => setIsSecurityModalOpen(false)}
+        config={securityConfig}
+        onUpdateConfig={(newCfg: SecurityConfig) => {
+          setSecurityConfig(newCfg);
+          saveSecurityConfig(newCfg);
+        }}
+        onLockNow={handleLockNow}
+        isCurrentlyUnlocked={isUnlocked}
+      />
+
+      {/* Social Media Share Modal from Cards */}
+      {sharingNote && (
+        <ShareNoteModal
+          note={sharingNote}
+          isOpen={Boolean(sharingNote)}
+          onClose={() => setSharingNote(null)}
+        />
+      )}
     </div>
   );
 }

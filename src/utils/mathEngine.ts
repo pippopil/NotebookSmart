@@ -22,6 +22,7 @@ export function normalizeNumbers(text: string): string {
   );
 
   // 2. Pure thousands with dots: e.g. "3.000", "35.000", "1.000.000"
+  // Where dot is followed by groups of 3 digits without further digits/decimals
   s = s.replace(/\b(\d{1,3}(?:[.]\d{3})+)(?!\d|[.]\d)/g, (_, m) =>
     m.replace(/[.]/g, '')
   );
@@ -118,216 +119,127 @@ export function safeEvalMath(expressionStr: string): number | null {
     // Replace unicode multiplication and division symbols
     expr = expr.replace(/[×xX]/g, '*').replace(/[÷:]/g, '/');
 
-    // Remove any trailing equal sign or question mark
-    expr = expr.replace(/[=?]+$/, '').trim();
-
-    // If pure number without operators:
-    if (/^-?\d+(?:\.\d+)?$/.test(expr)) {
-      const n = parseFloat(expr);
-      return isNaN(n) ? null : n;
-    }
-
-    // Handle percentage additions/subtractions: e.g. "3000 - 15%" -> "3000 * (1 - 0.15)"
+    // Handle percentage discounts or additions like: "5000 - 20%" -> "5000 * (1 - 0.20)"
     expr = expr.replace(
-      /(\d+(?:\.\d+)?)\s*([+\-])\s*(\d+(?:\.\d+)?)\s*%/g,
+      /(\d+(?:\.\d+)?)\s*([+-])\s*(\d+(?:\.\d+)?)\s*%/g,
       (_, base, op, pct) => {
-        const factor = op === '+' ? 1 + parseFloat(pct) / 100 : 1 - parseFloat(pct) / 100;
-        return `(${base} * ${factor})`;
+        const b = parseFloat(base);
+        const p = parseFloat(pct);
+        const delta = (b * p) / 100;
+        return op === '+' ? `${b + delta}` : `${b - delta}`;
       }
     );
 
-    // Handle standalone percentage: e.g. "15% * 3000" -> "(0.15 * 3000)"
+    // Standalone percentage: "20%" -> "0.2"
     expr = expr.replace(/(\d+(?:\.\d+)?)\s*%/g, '($1 / 100)');
-
-    // Whitelist only safe characters
-    if (!/^[\d\s+\-*/%().]+$/.test(expr)) {
-      return null;
-    }
 
     // Tokenize
     const tokens: string[] = [];
-    let current = '';
-
-    for (let i = 0; i < expr.length; i++) {
+    let i = 0;
+    while (i < expr.length) {
       const char = expr[i];
-      if (/\s/.test(char)) continue;
-
-      if (/[\d.]/.test(char)) {
-        current += char;
-      } else if (/[+\-*/%()]/.test(char)) {
-        if (current) {
-          tokens.push(current);
-          current = '';
-        }
-        // Handle unary minus: e.g. "-50" or "(-50)" or "3 * -2"
-        if (char === '-') {
-          const prev = tokens[tokens.length - 1];
-          if (!prev || /[+\-*/%(]/.test(prev)) {
-            current = '-';
-            continue;
-          }
-        }
-        tokens.push(char);
-      } else {
-        return null;
+      if (/\s/.test(char)) {
+        i++;
+        continue;
       }
+      if (/[+\-*/()]/.test(char)) {
+        tokens.push(char);
+        i++;
+        continue;
+      }
+      if (/\d|\./.test(char)) {
+        let numStr = '';
+        while (i < expr.length && /\d|\./.test(expr[i])) {
+          numStr += expr[i];
+          i++;
+        }
+        tokens.push(numStr);
+        continue;
+      }
+      // Unknown character inside math expression
+      return null;
     }
-    if (current) tokens.push(current);
 
     if (tokens.length === 0) return null;
 
-    // Shunting-yard algorithm
-    const outputQueue: (number | string)[] = [];
-    const operatorStack: string[] = [];
-    const precedence: Record<string, number> = {
-      '+': 1,
-      '-': 1,
-      '*': 2,
-      '/': 2,
-      '%': 2,
-    };
+    // Parser for basic arithmetic using Recursive Descent
+    let tokenIndex = 0;
 
-    for (const token of tokens) {
-      if (/^-?\d+(?:\.\d+)?$/.test(token)) {
-        outputQueue.push(parseFloat(token));
-      } else if (/[+\-*/%]/.test(token)) {
-        while (
-          operatorStack.length > 0 &&
-          operatorStack[operatorStack.length - 1] !== '(' &&
-          precedence[operatorStack[operatorStack.length - 1]] >= precedence[token]
-        ) {
-          outputQueue.push(operatorStack.pop()!);
-        }
-        operatorStack.push(token);
-      } else if (token === '(') {
-        operatorStack.push(token);
-      } else if (token === ')') {
-        while (
-          operatorStack.length > 0 &&
-          operatorStack[operatorStack.length - 1] !== '('
-        ) {
-          outputQueue.push(operatorStack.pop()!);
-        }
-        if (operatorStack.length === 0) return null;
-        operatorStack.pop(); // Pop '('
+    function peek(): string | undefined {
+      return tokens[tokenIndex];
+    }
+
+    function consume(): string {
+      return tokens[tokenIndex++];
+    }
+
+    function parseExpression(): number {
+      let result = parseTerm();
+      while (peek() === '+' || peek() === '-') {
+        const op = consume();
+        const term = parseTerm();
+        if (op === '+') result += term;
+        else result -= term;
       }
+      return result;
     }
 
-    while (operatorStack.length > 0) {
-      const op = operatorStack.pop()!;
-      if (op === '(' || op === ')') return null;
-      outputQueue.push(op);
-    }
-
-    // Evaluate RPN
-    const evalStack: number[] = [];
-    for (const token of outputQueue) {
-      if (typeof token === 'number') {
-        evalStack.push(token);
-      } else {
-        const b = evalStack.pop();
-        const a = evalStack.pop();
-        if (a === undefined || b === undefined) return null;
-
-        let res = 0;
-        switch (token) {
-          case '+':
-            res = a + b;
-            break;
-          case '-':
-            res = a - b;
-            break;
-          case '*':
-            res = a * b;
-            break;
-          case '/':
-            if (b === 0) return null;
-            res = a / b;
-            break;
-          case '%':
-            res = a % b;
-            break;
+    function parseTerm(): number {
+      let result = parseFactor();
+      while (peek() === '*' || peek() === '/') {
+        const op = consume();
+        const factor = parseFactor();
+        if (op === '*') result *= factor;
+        else {
+          if (factor === 0) return 0; // Avoid divide by zero crash
+          result /= factor;
         }
-        evalStack.push(res);
       }
+      return result;
     }
 
-    if (evalStack.length !== 1) return null;
-    const finalVal = evalStack[0];
-    return isNaN(finalVal) ? null : Math.round(finalVal * 100) / 100;
+    function parseFactor(): number {
+      const token = consume();
+      if (!token) return 0;
+
+      // Unary minus or plus
+      if (token === '-') {
+        return -parseFactor();
+      }
+      if (token === '+') {
+        return parseFactor();
+      }
+
+      if (token === '(') {
+        const val = parseExpression();
+        if (peek() === ')') consume();
+        return val;
+      }
+
+      const num = parseFloat(token);
+      return isNaN(num) ? 0 : num;
+    }
+
+    const val = parseExpression();
+    if (isNaN(val) || !isFinite(val)) return null;
+
+    // If there are unconsumed tokens, expression is invalid
+    if (tokenIndex < tokens.length) {
+      return null;
+    }
+
+    // Round to 2 decimals to prevent floating point glitches
+    return Math.round(val * 100) / 100;
   } catch {
     return null;
   }
 }
 
-// Keywords for Income / Profit
-const INCOME_KEYWORDS = [
-  'доход',
-  'прибыль',
-  'приход',
-  'зарплат',
-  'зп',
-  'аванс',
-  'преми',
-  'бонус',
-  'выручк',
-  'дивиденд',
-  'кэшбэк',
-  'кешбэк',
-  'поступлен',
-  'возврат',
-  'получил',
-  'заработал',
-  'продаж',
-  'подработк',
-  'гонорар',
-  'income',
-  'profit',
-  'salary',
-  'revenue',
-  'deposit',
-];
-
-// Keywords for Expenses / Spending
-const EXPENSE_KEYWORDS = [
-  'расход',
-  'трат',
-  'убыток',
-  'покупк',
-  'оплат',
-  'купил',
-  'аренд',
-  'счет',
-  'счета',
-  'жкх',
-  'свет',
-  'вода',
-  'газ',
-  'бензин',
-  'такси',
-  'продукты',
-  'аптека',
-  'налог',
-  'кредит',
-  'ипотек',
-  'подписк',
-  'спортзал',
-  'expense',
-  'spend',
-  'cost',
-  'rent',
-  'bill',
-];
-
 /**
- * Analyzes a single line of note text:
- * Determines if it contains income, expense, total, or neutral calculation.
+ * Analyzes a single line of note text.
+ * Determines if it contains a payment or arithmetic calculation.
  */
-export function analyzeLine(
-  rawText: string,
-  lineNumber: number,
-  activeSection: 'income' | 'expense' | null = null
-): LineCalculation {
+export function analyzeLine(rawText: string, lineNumber: number): LineCalculation {
   const trimmed = rawText.trim();
   const defaultCurrency = detectCurrency(trimmed);
 
@@ -344,7 +256,7 @@ export function analyzeLine(
     };
   }
 
-  const isTotalLine = /^[-*•]?\s*(?:итого|всего|общая сумма|остаток(?: бюджета)?|баланс|чистая прибыль|сальдо|итог|total|sum|balance|net)/i.test(
+  const isTotalLine = /^[-*•]?\s*(?:итого|всего|общая сумма|расходы|остаток(?: бюджета)?|баланс|total|sum|balance)(?:\s*[:—\-=]|\s+|$)/i.test(
     trimmed
   );
 
@@ -369,9 +281,9 @@ export function analyzeLine(
     potentialExpr = normalized.substring(eqIdx + 1).trim();
   } else {
     // Check if line has words followed by math
-    // e.g. "+ Зарплата 85000" or "- Аренда 35000" or "Кофе 250 * 2"
+    // e.g. "Кофе 250 * 2" or "Бензин 2500" or "Аренда 3000"
     const match = normalized.match(
-      /^([+\-]?\s*.*?)([\d\s+\-*/%().xX×÷]+(?:руб(?:лей|ля|\.?)|р\.?|rub|\$|€|₽|тенге)?)$/i
+      /^(.*?)([\d\s+\-*/%().xX×÷]+(?:руб(?:лей|ля|\.?)|р\.?|rub|\$|€|₽|тенге)?)$/i
     );
     if (match && match[1] && match[2] && /\d/.test(match[2])) {
       label = match[1].trim();
@@ -381,50 +293,46 @@ export function analyzeLine(
     }
   }
 
-  // Determine income vs expense classification
-  const lowerLabel = (label + ' ' + rawText).toLowerCase();
-  let lineType: 'income' | 'expense' | 'total' | 'neutral' = 'neutral';
+  // Detect if line uses units of pieces (шт, штуки, ед, pcs)
+  const isPiecesLine = /(?:\b\d+\s*(?:шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs|items?))/iu.test(trimmed);
 
-  if (isTotalLine) {
-    lineType = 'total';
-  } else {
-    const hasPlusPrefix = /^[+]\s*\d/i.test(potentialExpr) || /^[+]\s*/.test(label);
-    const hasMinusPrefix = /^[-]\s*\d/i.test(potentialExpr) || /^[-]\s*/.test(label);
-
-    const matchesIncomeWord = INCOME_KEYWORDS.some((kw) => lowerLabel.includes(kw));
-    const matchesExpenseWord = EXPENSE_KEYWORDS.some((kw) => lowerLabel.includes(kw));
-
-    if (hasPlusPrefix || matchesIncomeWord || activeSection === 'income') {
-      lineType = 'income';
-    } else if (hasMinusPrefix || matchesExpenseWord || activeSection === 'expense') {
-      lineType = 'expense';
-    } else {
-      // Default fallback if arithmetic result is present
-      lineType = 'expense';
-    }
-  }
-
-  // Strip currency words and symbols
+  // Strip currency words and symbols, or piece units
   let cleanExpr = stripCurrency(potentialExpr);
-
-  // If cleanExpr starts with explicit + or - sign, keep or sanitize for evaluation
-  if (cleanExpr.startsWith('+')) {
-    cleanExpr = cleanExpr.substring(1).trim();
+  if (isPiecesLine) {
+    cleanExpr = cleanExpr
+      .replace(/(?:шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs|items?)/giu, '')
+      .trim();
   }
 
   // Test if it has digits
   if (/\d/.test(cleanExpr)) {
     const result = safeEvalMath(cleanExpr);
     if (result !== null && !isNaN(result)) {
+      let lineType: 'income' | 'expense' | 'total' | 'neutral' = 'neutral';
+      if (isTotalLine) {
+        lineType = 'total';
+      } else if (
+        trimmed.startsWith('+') ||
+        /\b(?:прибыль|доход(?:ы)?|зарплат(?:а|ы)?|преми(?:я|и)|аванс|кешбэк|выручк(?:а|и)|получен(?:о|ы)|плюс)\b/i.test(trimmed)
+      ) {
+        lineType = 'income';
+      } else if (
+        trimmed.startsWith('-') ||
+        /\b(?:расход(?:ы)?|трат(?:ы|а)|минус|покупк(?:а|и)|оплат(?:а|ы)|аренд(?:а|ы)|коммуналк(?:а|и))\b/i.test(trimmed)
+      ) {
+        lineType = 'expense';
+      }
+
       return {
         lineNumber,
         rawText,
         expression: cleanExpr,
-        result: Math.abs(result),
-        currency: defaultCurrency,
+        result,
+        currency: isPiecesLine ? 'шт.' : defaultCurrency,
         label,
         isTotalLine,
         type: lineType,
+        isPieceCalculation: isPiecesLine,
       };
     }
   }
@@ -442,12 +350,7 @@ export function analyzeLine(
 }
 
 /**
- * Analyzes whole note text line-by-line and calculates:
- * - Line calculations
- * - Income (Прибыль / Доходы)
- * - Expenses (Расходы / Траты)
- * - Net Balance (Остаток / Прибыль - Расходы)
- * - Currency breakdown and Grand Total
+ * Analyzes whole note text line-by-line and calculates grand total and currency breakdowns.
  */
 export function analyzeNote(content: string): NoteCalculationSummary {
   const rawLines = content.split('\n');
@@ -455,116 +358,97 @@ export function analyzeNote(content: string): NoteCalculationSummary {
   const breakdownByCurrency: Record<string, number> = {};
   let totalCalculatedLines = 0;
   let primaryCurrency = '₽';
-
+  let runningSubtotal = 0;
   let totalIncome = 0;
   let totalExpenses = 0;
-  let hasExplicitIncome = false;
-  let activeSection: 'income' | 'expense' | null = null;
+  let totalPieces = 0;
+  let hasPieces = false;
 
   for (let idx = 0; idx < rawLines.length; idx++) {
     const rawLine = rawLines[idx];
-    const trimmedLower = rawLine.trim().toLowerCase();
+    const parsed = analyzeLine(rawLine, idx + 1);
 
-    // Section header detection (e.g. "=== Доходы ===", "Доходы:", "=== Расходы ===", "Траты:")
-    if (
-      /^(?:#+\s*|[-=*~]+\s*)?(?:доход[ыа]?|прибыл[ьи]|поступлени[яе]|приход)\s*[:—=\-]*$/i.test(
-        trimmedLower
-      )
-    ) {
-      activeSection = 'income';
-      hasExplicitIncome = true;
-    } else if (
-      /^(?:#+\s*|[-=*~]+\s*)?(?:расход[ыа]?|трат[ыа]|платеж[ией]*|оплат[ыа]|счета)\s*[:—=\-]*$/i.test(
-        trimmedLower
-      )
-    ) {
-      activeSection = 'expense';
-    } else if (
-      /^(?:#+\s*|[-=*~]+\s*)?(?:итого|остаток|баланс|чистая прибыль)\s*[:—=\-]*$/i.test(
-        trimmedLower
-      )
-    ) {
-      activeSection = null;
+    if (parsed.isTotalLine) {
+      let totalSoFar: number;
+      if (runningSubtotal > 0) {
+        totalSoFar = Math.round(runningSubtotal * 100) / 100;
+      } else if (parsed.result !== null && parsed.result > 0) {
+        totalSoFar = parsed.result;
+        runningSubtotal = parsed.result;
+      } else {
+        totalSoFar = 0;
+      }
+
+      parsed.result = totalSoFar;
+      parsed.currency = primaryCurrency;
+      lines.push(parsed);
+    } else {
+      if (parsed.result !== null) {
+        totalCalculatedLines++;
+        if (parsed.isPieceCalculation) {
+          totalPieces += parsed.result;
+          hasPieces = true;
+        } else {
+          const curr = parsed.currency;
+          breakdownByCurrency[curr] = (breakdownByCurrency[curr] || 0) + parsed.result;
+          primaryCurrency = curr;
+          runningSubtotal += parsed.result;
+
+          if (parsed.type === 'income') {
+            totalIncome += parsed.result;
+          } else if (parsed.type === 'expense') {
+            totalExpenses += parsed.result;
+          }
+        }
+      }
+      lines.push(parsed);
     }
-
-    const parsed = analyzeLine(rawLine, idx + 1, activeSection);
-
-    if (parsed.type === 'income' && parsed.result !== null && !parsed.isTotalLine) {
-      hasExplicitIncome = true;
-      totalIncome += parsed.result;
-      totalCalculatedLines++;
-      primaryCurrency = parsed.currency;
-    } else if (parsed.type === 'expense' && parsed.result !== null && !parsed.isTotalLine) {
-      totalExpenses += parsed.result;
-      totalCalculatedLines++;
-      primaryCurrency = parsed.currency;
-    }
-
-    lines.push(parsed);
   }
 
-  // Net Balance: От прибыли вычитаем расходы
-  // If income was explicitly specified, balance is income - expenses
-  // If no income was recorded at all, expenses represent the total expenditure.
-  totalIncome = Math.round(totalIncome * 100) / 100;
-  totalExpenses = Math.round(totalExpenses * 100) / 100;
+  let finalGrandTotal = breakdownByCurrency[primaryCurrency] || runningSubtotal || 0;
+  let finalCurrency = primaryCurrency;
 
-  const hasIncomeExpenseSplit = hasExplicitIncome && totalIncome > 0;
-  const netBalance = hasIncomeExpenseSplit
-    ? Math.round((totalIncome - totalExpenses) * 100) / 100
-    : Math.round(totalExpenses * 100) / 100;
+  // If note only has piece calculations (or predominantly pieces and no monetary totals), set unit to "шт."
+  if (finalGrandTotal === 0 && totalPieces > 0) {
+    finalGrandTotal = totalPieces;
+    finalCurrency = 'шт.';
+  }
 
+  const hasIncomeExpenseSplit = totalIncome > 0 && totalExpenses > 0;
+  const netBalance = totalIncome - totalExpenses;
   const savingsRatePercent =
     totalIncome > 0
-      ? Math.max(0, Math.min(100, Math.round(((totalIncome - totalExpenses) / totalIncome) * 100)))
+      ? Math.max(0, Math.round(((totalIncome - totalExpenses) / totalIncome) * 100))
       : 0;
-
-  // Second pass: resolve total and balance lines
-  for (const line of lines) {
-    if (line.isTotalLine) {
-      const lower = line.rawText.toLowerCase();
-      if (lower.includes('доход') || lower.includes('прибыл')) {
-        line.result = totalIncome;
-      } else if (lower.includes('расход') || lower.includes('трат')) {
-        line.result = totalExpenses;
-      } else if (lower.includes('остаток') || lower.includes('баланс') || lower.includes('чистая')) {
-        line.result = hasIncomeExpenseSplit ? netBalance : totalExpenses;
-      } else {
-        // Generic "Итого:"
-        line.result = hasIncomeExpenseSplit ? netBalance : totalExpenses;
-      }
-      line.currency = primaryCurrency;
-    }
-  }
-
-  const grandTotal = hasIncomeExpenseSplit ? netBalance : totalExpenses;
-  breakdownByCurrency[primaryCurrency] = grandTotal;
 
   return {
     lines,
-    grandTotal,
-    totalIncome,
-    totalExpenses,
-    netBalance,
+    grandTotal: Math.round(finalGrandTotal * 100) / 100,
+    totalIncome: Math.round(totalIncome * 100) / 100,
+    totalExpenses: Math.round(totalExpenses * 100) / 100,
+    netBalance: Math.round(netBalance * 100) / 100,
     hasIncomeExpenseSplit,
     savingsRatePercent,
-    currency: primaryCurrency,
+    currency: finalCurrency,
     totalCalculatedLines,
     breakdownByCurrency,
+    totalPieces: Math.round(totalPieces * 100) / 100,
+    hasPiecesCalculation: hasPieces,
   };
 }
 
 /**
  * Format currency with thousands spaces
- * e.g. 35000 -> "35 000 ₽", 3000 -> "3 000 ₽"
+ * e.g. 35000 -> "35 000 ₽", 3000 -> "3 000 ₽", 15 -> "15 шт."
  */
 export function formatMoney(amount: number, currency = '₽'): string {
   const rounded = Math.round(amount * 100) / 100;
-  const parts = Math.abs(rounded).toFixed(rounded % 1 === 0 ? 0 : 2).split('.');
+  const parts = rounded.toFixed(rounded % 1 === 0 ? 0 : 2).split('.');
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  const formattedNum = (rounded < 0 ? '− ' : '') + parts.join('.');
+  const formattedNum = parts.join('.');
 
-  if (currency === '$') return `${rounded < 0 ? '−$' : '$'}${parts.join('.')}`;
-  if (currency === '€') return `${rounded < 0 ? '−€' : '€'}${parts.join('.')}`;
+  if (currency === '$') return `$${formattedNum}`;
+  if (currency === '€') return `€${formattedNum}`;
+  if (currency === 'шт.' || currency === 'шт') return `${formattedNum} шт.`;
   return `${formattedNum} ${currency}`;
 }

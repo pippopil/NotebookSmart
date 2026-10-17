@@ -7,7 +7,7 @@ export interface LocationInfo {
   district?: string;
   street?: string;
   formattedAddress: string;
-  source: 'gps' | 'ip' | 'search' | 'manual' | 'default';
+  source: 'gps' | 'manual' | 'default';
 }
 
 export const MAJOR_CITIES: Record<string, { lat: number; lng: number; name: string }> = {
@@ -17,17 +17,8 @@ export const MAJOR_CITIES: Record<string, { lat: number; lng: number; name: stri
   ekb: { lat: 56.8389, lng: 60.6057, name: 'Екатеринбург' },
   kzn: { lat: 55.7887, lng: 49.1221, name: 'Казань' },
   nn: { lat: 56.3269, lng: 44.0059, name: 'Нижний Новгород' },
-  chelyabinsk: { lat: 55.1644, lng: 61.4368, name: 'Челябинск' },
   samara: { lat: 53.1959, lng: 50.1002, name: 'Самара' },
-  ufa: { lat: 54.7388, lng: 55.9721, name: 'Уфа' },
-  rostov: { lat: 47.2357, lng: 39.7015, name: 'Ростов-на-Дону' },
   krasnodar: { lat: 45.0355, lng: 38.9753, name: 'Краснодар' },
-  krasnoyarsk: { lat: 56.0153, lng: 92.8932, name: 'Красноярск' },
-  voronezh: { lat: 51.6755, lng: 39.2089, name: 'Воронеж' },
-  perm: { lat: 58.0105, lng: 56.2502, name: 'Пермь' },
-  volgograd: { lat: 48.7080, lng: 44.5133, name: 'Волгоград' },
-  tyumen: { lat: 57.1530, lng: 65.5343, name: 'Тюмень' },
-  saratov: { lat: 51.5406, lng: 46.0086, name: 'Саратов' },
 };
 
 export const POPULAR_CHAINS = [
@@ -51,6 +42,7 @@ export function formatDistance(meters: number): { distanceText: string; walkMinu
   } else {
     distanceText = `${(meters / 1000).toFixed(1)} км`;
   }
+  // Average walking speed ~ 5 km/h = 83 m/min
   const walkMinutes = Math.max(1, Math.round(meters / 80));
   return { distanceText, walkMinutes };
 }
@@ -61,7 +53,7 @@ export function formatDistance(meters: number): { distanceText: string; walkMinu
 export async function reverseGeocodeCoords(lat: number, lng: number): Promise<LocationInfo> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
 
     const res = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
@@ -105,102 +97,6 @@ export async function reverseGeocodeCoords(lat: number, lng: number): Promise<Lo
     formattedAddress: `Координаты: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
     source: 'gps',
   };
-}
-
-/**
- * Fallback to IP-based Geolocation when browser GPS is blocked in iframe/permission denied
- */
-export async function detectLocationByIP(): Promise<LocationInfo | null> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-    const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.latitude && data.longitude) {
-        const cityName = data.city || 'Москва';
-        return {
-          lat: data.latitude,
-          lng: data.longitude,
-          city: cityName,
-          formattedAddress: `${cityName} (${data.region || 'по IP'})`,
-          source: 'ip',
-        };
-      }
-    }
-  } catch {
-    // Try secondary free ip api
-    try {
-      const controller2 = new AbortController();
-      const timeoutId2 = setTimeout(() => controller2.abort(), 3000);
-      const res2 = await fetch('https://freeipapi.com/api/json', { signal: controller2.signal });
-      clearTimeout(timeoutId2);
-      if (res2.ok) {
-        const data2 = await res2.json();
-        if (data2 && data2.latitude && data2.longitude) {
-          const cityName = data2.cityName || 'Москва';
-          return {
-            lat: data2.latitude,
-            lng: data2.longitude,
-            city: cityName,
-            formattedAddress: `${cityName} (${data2.regionName || 'по IP'})`,
-            source: 'ip',
-          };
-        }
-      }
-    } catch {
-      // Ignored
-    }
-  }
-  return null;
-}
-
-/**
- * Searches city or street via Nominatim Geocoding API
- */
-export async function searchAddressGeocoding(queryStr: string): Promise<LocationInfo[]> {
-  const q = queryStr.trim();
-  if (!q || q.length < 2) return [];
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-        q
-      )}&countrycodes=ru,by,kz&addressdetails=1&limit=6`,
-      {
-        signal: controller.signal,
-        headers: { 'Accept-Language': 'ru, ru-RU;q=0.9, en;q=0.8' },
-      }
-    );
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        return data.map((item: any) => {
-          const addr = item.address || {};
-          const city = addr.city || addr.town || addr.village || addr.state || q;
-          return {
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon),
-            city,
-            formattedAddress: item.display_name.split(',').slice(0, 3).join(','),
-            source: 'search',
-          };
-        });
-      }
-    }
-  } catch {
-    // Return empty on error
-  }
-
-  return [];
 }
 
 /**

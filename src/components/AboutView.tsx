@@ -1,0 +1,410 @@
+import React, { useState } from 'react';
+import {
+  APP_VERSION,
+  APP_BUILD,
+  APP_RELEASE_DATE,
+  RELEASES_HISTORY,
+} from '../version';
+import { AppLogo } from './AppLogo';
+import { checkAndApplyAppUpdate } from '../services/appUpdater';
+import { Note } from '../types';
+import {
+  ShieldCheck,
+  RefreshCw,
+  GitBranch,
+  Github,
+  Award,
+  Sparkles,
+  Database,
+  Lock,
+  Share2,
+  PieChart,
+  ShoppingCart,
+  Calculator,
+  Download,
+  Upload,
+  CheckCircle2,
+  ExternalLink,
+  BookOpen,
+  Info,
+  Clock,
+  Layers,
+  Heart,
+} from 'lucide-react';
+
+interface AboutViewProps {
+  notes: Note[];
+  onOpenChangelog?: () => void;
+  onOpenSecurity?: () => void;
+  onRestoreNotes?: (notes: Note[]) => void;
+}
+
+export const AboutView: React.FC<AboutViewProps> = ({
+  notes,
+  onOpenChangelog,
+  onOpenSecurity,
+  onRestoreNotes,
+}) => {
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleUpdate = async () => {
+    setIsUpdating(true);
+    setUpdateMessage('Проверка новой версии в репозитории...');
+    const res = await checkAndApplyAppUpdate();
+    setUpdateMessage(res.message);
+    setIsUpdating(false);
+    setTimeout(() => {
+      setUpdateMessage(null);
+    }, 4000);
+  };
+
+  // Export all user data as backup JSON
+  const handleExportData = () => {
+    try {
+      const dataStr = JSON.stringify(
+        {
+          appName: 'NotebookSmart',
+          version: APP_VERSION,
+          exportedAt: new Date().toISOString(),
+          notesCount: notes.length,
+          notes,
+        },
+        null,
+        2
+      );
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `notebook_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Ошибка при выгрузке резервной копии.');
+    }
+  };
+
+  // Import backup JSON
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed && Array.isArray(parsed.notes) && onRestoreNotes) {
+          if (
+            window.confirm(
+              `Импортировать ${parsed.notes.length} заметок из резервной копии? Они добавятся в вашу тетрадь.`
+            )
+          ) {
+            onRestoreNotes(parsed.notes);
+            alert('Заметки успешно импортированы!');
+          }
+        } else {
+          alert('Неверный формат файла резервной копии.');
+        }
+      } catch {
+        alert('Ошибка при чтении JSON файла.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-6 space-y-6 pb-28 animate-in fade-in duration-200">
+      {/* HERO CARD */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-amber-500/10 via-orange-500/10 to-amber-600/5 dark:from-stone-850 dark:to-stone-900 border border-amber-900/15 dark:border-stone-700/80 p-6 sm:p-8 text-center shadow-sm">
+        <div className="relative z-10 flex flex-col items-center">
+          <div className="mb-4 drop-shadow-md">
+            <AppLogo size={76} />
+          </div>
+
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-900 dark:text-white tracking-tight">
+            Умная Тетрадь
+          </h1>
+          <p className="text-sm sm:text-base font-semibold text-amber-900/80 dark:text-amber-300/90 mt-1">
+            Заметки • Расчёты • Покупки • Аналитика
+          </p>
+
+          <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-300 max-w-lg mt-3 leading-relaxed">
+            Интеллектуальная цифровая тетрадь со встроенным калькулятором сумм и штук,
+            диаграммами расходов Recharts, умными списками покупок и конфиденциальным локальным хранением.
+          </p>
+
+          {/* Quick Version Chips */}
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-5">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 dark:bg-amber-400/10 border border-amber-500/30 text-amber-950 dark:text-amber-300 font-mono text-xs font-bold">
+              <span>Версия: v{APP_VERSION}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            </span>
+
+            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-stone-200/70 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-mono text-xs font-semibold">
+              <Layers className="w-3.5 h-3.5 text-stone-500" />
+              <span>Сборка #{APP_BUILD}</span>
+            </span>
+
+            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 text-xs font-semibold">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>PWA Офлайн готов</span>
+            </span>
+          </div>
+
+          {/* Update Action Button */}
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={handleUpdate}
+              disabled={isUpdating}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/20 active:scale-95 transition cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin' : ''}`} />
+              <span>{isUpdating ? 'Обновление...' : 'Проверить обновления приложения'}</span>
+            </button>
+
+            {onOpenChangelog && (
+              <button
+                onClick={onOpenChangelog}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-750 text-stone-800 dark:text-stone-200 font-bold text-xs sm:text-sm border border-stone-200 dark:border-stone-700 shadow-2xs active:scale-95 transition cursor-pointer"
+              >
+                <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                <span>История версий</span>
+              </button>
+            )}
+          </div>
+
+          {updateMessage && (
+            <div className="mt-3.5 px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-900 dark:text-emerald-300 text-xs font-medium animate-in fade-in">
+              {updateMessage}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* SYSTEM & BUILD SPECIFICATIONS */}
+      <div className="bg-[#fffdf9] dark:bg-stone-900 rounded-3xl border border-amber-900/15 dark:border-stone-800 p-5 sm:p-6 shadow-sm space-y-4">
+        <h2 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white flex items-center gap-2">
+          <Info className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+          <span>Спецификация сборки и лицензия</span>
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm font-mono">
+          <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-950/60 border border-stone-200/80 dark:border-stone-800">
+            <span className="text-stone-500 dark:text-stone-400 block text-[11px] mb-1">
+              Название программы
+            </span>
+            <span className="font-bold text-stone-900 dark:text-stone-100">
+              «Умная Тетрадь» (NotebookSmart)
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-950/60 border border-stone-200/80 dark:border-stone-800">
+            <span className="text-stone-500 dark:text-stone-400 block text-[11px] mb-1">
+              Версия и Дата сборки
+            </span>
+            <span className="font-bold text-stone-900 dark:text-stone-100">
+              v{APP_VERSION} (Сборка #{APP_BUILD}) • {APP_RELEASE_DATE}
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-950/60 border border-stone-200/80 dark:border-stone-800">
+            <span className="text-stone-500 dark:text-stone-400 block text-[11px] mb-1">
+              Лицензия на ПО
+            </span>
+            <div className="flex items-center gap-1.5 font-bold text-emerald-700 dark:text-emerald-400">
+              <Award className="w-4 h-4" />
+              <span>MIT License (Свободное ПО)</span>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-950/60 border border-stone-200/80 dark:border-stone-800">
+            <span className="text-stone-500 dark:text-stone-400 block text-[11px] mb-1">
+              Репозиторий проекта
+            </span>
+            <a
+              href="https://github.com/pippopil/NotebookSmart"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400 hover:underline"
+            >
+              <Github className="w-4 h-4" />
+              <span>github.com/pippopil/NotebookSmart</span>
+              <ExternalLink className="w-3 h-3 ml-auto opacity-70" />
+            </a>
+          </div>
+        </div>
+
+        <div className="p-3.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/30 text-xs text-stone-700 dark:text-stone-300 leading-relaxed">
+          <p>
+            <strong>Условия лицензии MIT:</strong> Предоставляется бесплатно любому лицу право на использование, копирование, изменение, объединение, публикацию и распространение копий программного обеспечения без ограничений.
+          </p>
+        </div>
+      </div>
+
+      {/* PRIVACY & SECURITY BANNER */}
+      <div className="bg-[#fffdf9] dark:bg-stone-900 rounded-3xl border border-emerald-900/20 dark:border-emerald-900/40 p-5 sm:p-6 shadow-sm space-y-3">
+        <h2 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+          <span>Приватность и безопасность данных</span>
+        </h2>
+
+        <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-300 leading-relaxed">
+          Все ваши данные, сметы, списки покупок и личные записи хранятся <strong>исключительно на вашем устройстве</strong> в локальном хранилище браузера (LocalStorage / IndexedDB).
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 text-xs">
+          <div className="p-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/40">
+            <span className="font-bold text-emerald-900 dark:text-emerald-300 block mb-1">
+              🔒 100% Локально
+            </span>
+            <span className="text-stone-600 dark:text-stone-400">
+              Никакой слежки, аналитики и передачи персональных данных третьим лицам.
+            </span>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-purple-50/70 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-800/40">
+            <span className="font-bold text-purple-900 dark:text-purple-300 block mb-1">
+              🔑 PIN & Биометрия
+            </span>
+            <span className="text-stone-600 dark:text-stone-400">
+              Возможность защитить разделы оплат и покупок кодом или Touch ID / Face ID.
+            </span>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-sky-50/70 dark:bg-sky-950/20 border border-sky-200/60 dark:border-sky-800/40">
+            <span className="font-bold text-sky-900 dark:text-sky-300 block mb-1">
+              ⚡ Автономный режим
+            </span>
+            <span className="text-stone-600 dark:text-stone-400">
+              Приложение полноценно работает без подключения к интернету в офлайн-режиме.
+            </span>
+          </div>
+        </div>
+
+        {onOpenSecurity && (
+          <div className="pt-2">
+            <button
+              onClick={onOpenSecurity}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-750 text-stone-800 dark:text-stone-200 text-xs font-bold transition active:scale-95 cursor-pointer border border-stone-200 dark:border-stone-700"
+            >
+              <Lock className="w-3.5 h-3.5 text-amber-600" />
+              <span>Настроить защиту доступа (PIN / Face ID)</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* CORE FEATURES LIST */}
+      <div className="bg-[#fffdf9] dark:bg-stone-900 rounded-3xl border border-amber-900/15 dark:border-stone-800 p-5 sm:p-6 shadow-sm space-y-4">
+        <h2 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+          <span>Ключевые возможности приложения</span>
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+          <div className="flex items-start gap-3 p-3 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <Calculator className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Калькулятор прямо в тексте
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Мгновенный автоматический подсчет денежных сумм (₽, $, €) и количеств в штуках («шт.»).
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 p-3 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800">
+            <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-700 dark:text-purple-400 flex items-center justify-center shrink-0">
+              <PieChart className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                График расходов Recharts
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Наглядная интерактивная круговая диаграмма распределения затрат по умным тегам заметок.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 p-3 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <ShoppingCart className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Умная корзина и память брендов
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Расчет полной стоимости корзины по минимальным ценам, расчет экономии и запоминание любимых марок.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 p-3 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800">
+            <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-700 dark:text-sky-400 flex items-center justify-center shrink-0">
+              <Share2 className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Отправка в МАКС и соцсети
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Красивое оформление заметок для отправки в мессенджер МАКС, Telegram, WhatsApp и VKontakte.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* BACKUP & RESTORE DATA */}
+      <div className="bg-[#fffdf9] dark:bg-stone-900 rounded-3xl border border-amber-900/15 dark:border-stone-800 p-5 sm:p-6 shadow-sm space-y-4">
+        <h2 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white flex items-center gap-2">
+          <Database className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+          <span>Резервное копирование и управление данными</span>
+        </h2>
+
+        <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-300">
+          Сохраните резервную копию всех записей вашей тетради в JSON-файл или восстановите данные на новом устройстве.
+        </p>
+
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <button
+            onClick={handleExportData}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-950 dark:text-amber-300 border border-amber-400/40 font-bold text-xs sm:text-sm transition active:scale-95 cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            <span>Скачать резервную копию ({notes.length} заметок)</span>
+          </button>
+
+          <label className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-750 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-bold text-xs sm:text-sm transition active:scale-95 cursor-pointer">
+            <Upload className="w-4 h-4 text-stone-500" />
+            <span>Восстановить из файла JSON</span>
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleImportData}
+              className="hidden"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* FOOTER NOTE */}
+      <div className="text-center text-xs text-stone-500 dark:text-stone-400 py-3 space-y-1">
+        <p className="flex items-center justify-center gap-1">
+          <span>Сделано с</span>
+          <Heart className="w-3.5 h-3.5 fill-rose-500 text-rose-500 inline" />
+          <span>для удобных расчетов и заметок</span>
+        </p>
+        <p className="font-mono text-[11px] text-stone-400 dark:text-stone-500">
+          NotebookSmart v{APP_VERSION} (Build {APP_BUILD}) • MIT License
+        </p>
+      </div>
+    </div>
+  );
+};

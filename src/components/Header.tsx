@@ -1,10 +1,12 @@
 import React from 'react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { SyncStatus } from '../types';
-import { Cloud, CloudOff, RefreshCw, Github, WifiOff, Search } from 'lucide-react';
+import { Cloud, CloudOff, RefreshCw, Github, WifiOff, Search, Shield, ShieldCheck, Lock } from 'lucide-react';
 import { AppLogo } from './AppLogo';
 import { ThemeToggle } from './ThemeToggle';
 import { APP_VERSION } from '../version';
+
+import { checkAndApplyAppUpdate } from '../services/appUpdater';
 
 interface HeaderProps {
   syncStatus: SyncStatus;
@@ -13,6 +15,9 @@ interface HeaderProps {
   onOpenChangelog?: () => void;
   onOpenTemplates?: () => void;
   onOpenSearch?: () => void;
+  onOpenSecurity?: () => void;
+  isSecurityConfigured?: boolean;
+  isUnlocked?: boolean;
   searchQuery: string;
   onSearchChange: (q: string) => void;
 }
@@ -23,32 +28,41 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSync,
   onOpenChangelog,
   onOpenTemplates,
+  onOpenSecurity,
+  isSecurityConfigured = false,
+  isUnlocked = false,
   searchQuery,
   onSearchChange,
 }) => {
+  const [isUpdatingApp, setIsUpdatingApp] = React.useState(false);
+  const [updateFeedback, setUpdateFeedback] = React.useState<string | null>(null);
+
+  const handleTriggerUpdate = async () => {
+    setIsUpdatingApp(true);
+    setUpdateFeedback('Проверка обновлений...');
+    const res = await checkAndApplyAppUpdate();
+    setUpdateFeedback(res.message);
+    setIsUpdatingApp(false);
+    setTimeout(() => setUpdateFeedback(null), 3500);
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-[#fcfaf7]/90 dark:bg-[#161412]/90 backdrop-blur-xl border-b border-amber-900/10 dark:border-stone-800/80 px-4 py-3 safe-top transition-colors">
       <div className="max-w-4xl mx-auto flex items-center justify-between gap-2.5">
-        {/* Brand: Original NotebookSmart Logo & Version */}
-        <div className="flex items-center gap-2.5">
-          <AppLogo size={36} />
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-base tracking-tight text-stone-900 dark:text-stone-50">
-                NotebookSmart
-              </span>
-              <button
-                onClick={onOpenChangelog}
-                className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 border border-amber-400/30 transition active:scale-95 cursor-pointer flex items-center gap-1"
-                title="Что нового? История версий"
-              >
-                <span>v{APP_VERSION}</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              </button>
-            </div>
-            <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-none mt-0.5">
-              Умные оплаты & Покупки
-            </p>
+        {/* Brand: App Icon & In-App Updater (Version moved to About App tab per user request) */}
+        <div className="flex items-center gap-2">
+          <AppLogo size={34} />
+          <div className="flex items-center gap-1.5">
+            {/* In-app update button without reinstalling */}
+            <button
+              onClick={handleTriggerUpdate}
+              disabled={isUpdatingApp}
+              className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition active:scale-95 cursor-pointer flex items-center gap-1 text-[11px] font-semibold"
+              title="Проверить и обновить приложение прямо сейчас без переустановки"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 ${isUpdatingApp ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Обновить</span>
+            </button>
           </div>
         </div>
 
@@ -56,6 +70,37 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Day / Night Mode Toggle */}
           <ThemeToggle />
+
+          {/* Security Protection (PIN / Biometrics) */}
+          {onOpenSecurity && (
+            <button
+              onClick={onOpenSecurity}
+              className={`p-1.5 rounded-xl border transition active:scale-95 cursor-pointer flex items-center justify-center ${
+                isSecurityConfigured
+                  ? isUnlocked
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25'
+                    : 'bg-amber-500/20 border-amber-500/40 text-amber-800 dark:text-amber-300 hover:bg-amber-500/30'
+                  : 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-500 dark:text-stone-400 border-stone-200 dark:border-stone-700'
+              }`}
+              title={
+                isSecurityConfigured
+                  ? isUnlocked
+                    ? 'Защита активна (разблокировано). Нажмите для настроек или блокировки'
+                    : 'Категории заблокированы. Нажмите для настроек'
+                  : 'Настроить защиту данных (PIN-код / биометрия)'
+              }
+            >
+              {isSecurityConfigured ? (
+                isUnlocked ? (
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                ) : (
+                  <Lock className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                )
+              ) : (
+                <Shield className="w-4 h-4" />
+              )}
+            </button>
+          )}
 
           {/* Quick Life Templates button */}
           {onOpenTemplates && (
@@ -139,6 +184,24 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
       </div>
+
+      {/* Floating in-app update feedback banner */}
+      {updateFeedback && (
+        <div className="max-w-4xl mx-auto mt-2">
+          <div className="px-3 py-1.5 rounded-xl bg-emerald-500/15 dark:bg-emerald-950/60 border border-emerald-400/40 text-emerald-900 dark:text-emerald-300 text-xs font-semibold flex items-center justify-between animate-fade-in shadow-xs">
+            <div className="flex items-center gap-1.5">
+              <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingApp ? 'animate-spin' : ''}`} />
+              <span>{updateFeedback}</span>
+            </div>
+            <button
+              onClick={() => setUpdateFeedback(null)}
+              className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 text-xs p-0.5"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

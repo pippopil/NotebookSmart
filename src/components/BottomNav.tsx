@@ -1,10 +1,21 @@
 import React, { useState } from 'react';
-import { FileText, ShoppingCart, Calendar, Calculator, Plus, X, Archive } from 'lucide-react';
+import {
+  FileText,
+  ShoppingCart,
+  Calendar,
+  Calculator,
+  Plus,
+  X,
+  Archive,
+  Info,
+} from 'lucide-react';
 import { NoteCategory } from '../types';
 
+export type NavTabType = 'notes' | 'shopping' | 'events' | 'calc' | 'sync' | 'archive' | 'about';
+
 interface BottomNavProps {
-  activeTab: 'notes' | 'shopping' | 'events' | 'calc' | 'sync' | 'archive';
-  onTabChange: (tab: 'notes' | 'shopping' | 'events' | 'calc' | 'sync' | 'archive') => void;
+  activeTab: NavTabType;
+  onTabChange: (tab: NavTabType) => void;
   onNewNote: (category: NoteCategory) => void;
   onOpenTemplates?: () => void;
   pendingShoppingCount: number;
@@ -218,7 +229,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             <span className="text-[10px]">Оплаты</span>
           </button>
 
-          {/* Archive tab: Closed months & completed shopping */}
+          {/* Archive tab */}
           <button
             onClick={() => onTabChange('archive')}
             className={`flex flex-col items-center gap-1 transition ${
@@ -230,6 +241,20 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           >
             <Archive className="w-5 h-5" />
             <span className="text-[10px]">Архив</span>
+          </button>
+
+          {/* About App tab per user request */}
+          <button
+            onClick={() => onTabChange('about')}
+            className={`flex flex-col items-center gap-1 transition ${
+              activeTab === 'about'
+                ? 'text-amber-600 dark:text-amber-400 font-bold scale-105'
+                : 'text-stone-400 hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300'
+            }`}
+            title="О приложении: версия сборки, название, лицензия и возможности"
+          >
+            <Info className="w-5 h-5" />
+            <span className="text-[10px] whitespace-nowrap">О приложении</span>
           </button>
         </div>
       </nav>

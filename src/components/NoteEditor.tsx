@@ -25,8 +25,21 @@ import {
   BellRing,
   BellOff,
   Volume2,
+  Tag,
+  X,
+  Plus,
+  Bold,
+  Italic,
+  Underline,
+  Highlighter,
+  Eye,
+  Edit3,
+  Send,
+  MessageCircle,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
+import { ShareNoteModal } from './ShareNoteModal';
+import { useSwipeBack } from '../hooks/useSwipeBack';
 import {
   getNotificationPermission,
   requestNotificationPermission,
@@ -35,6 +48,11 @@ import {
   toDateTimeLocalString,
   NotificationPermissionState,
 } from '../services/notifications';
+import {
+  generateAutoTags,
+  POPULAR_TAGS,
+  normalizeTag,
+} from '../services/aiTagging';
 
 interface NoteEditorProps {
   note: Note;
@@ -81,6 +99,23 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   );
   const [testNotifSent, setTestNotifSent] = useState(false);
 
+  // Tags & AI Auto-tagging state
+  const [tags, setTags] = useState<string[]>(note.tags || []);
+  const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
+  const [isLoadingAiTags, setIsLoadingAiTags] = useState<boolean>(false);
+  const [tagInput, setTagInput] = useState<string>('');
+  const [isAiSource, setIsAiSource] = useState<boolean>(false);
+
+  // Formatting & Preview Mode
+  const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
+  const [isSocialShareOpen, setIsSocialShareOpen] = useState<boolean>(false);
+
+  // Mobile swipe navigation: swipe horizontally returns to main notes screen
+  useSwipeBack({
+    onBack: onClose,
+    enabled: true,
+  });
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-analysis of math and shopping
@@ -94,6 +129,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       title,
       content,
       category,
+      tags,
       isPinned,
       eventDate,
       eventTime,
@@ -107,6 +143,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       cachedIncome: mathSummary.totalIncome,
       cachedExpenses: mathSummary.totalExpenses,
       cachedNetBalance: mathSummary.netBalance,
+      cachedPieces: mathSummary.totalPieces,
       currency: mathSummary.currency,
       shoppingItemsCount: shoppingItems.length,
       completedItemsCount: shoppingItems.filter((i) => i.isCompleted).length,
@@ -115,6 +152,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     title,
     content,
     category,
+    tags,
     isPinned,
     eventDate,
     eventTime,
@@ -125,11 +163,59 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   ]);
 
   // Haptic feedback
-  const triggerHaptic = () => {
+  const triggerHaptic = (ms: number = 12) => {
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate(12);
+      navigator.vibrate(ms);
     }
   };
+
+  // Add a tag to current note
+  const handleAddTag = (tagToAdd: string) => {
+    const norm = normalizeTag(tagToAdd);
+    if (!norm) return;
+    triggerHaptic(10);
+    if (!tags.includes(norm)) {
+      setTags((prev) => [...prev, norm]);
+    }
+    setSuggestedTags((prev) => prev.filter((t) => t.toLowerCase() !== norm.toLowerCase()));
+    setTagInput('');
+  };
+
+  // Remove a tag
+  const handleRemoveTag = (tagToRemove: string) => {
+    triggerHaptic(10);
+    setTags((prev) => prev.filter((t) => t !== tagToRemove));
+  };
+
+  // Trigger AI Auto-Tagging
+  const handleTriggerAiTagging = async () => {
+    triggerHaptic(15);
+    setIsLoadingAiTags(true);
+    try {
+      const res = await generateAutoTags(title, content, category);
+      // Filter out tags already added
+      const filtered = res.tags.filter(
+        (t) => !tags.some((existing) => existing.toLowerCase() === t.toLowerCase())
+      );
+      setSuggestedTags(filtered);
+      setIsAiSource(res.isAiGenerated);
+    } catch {
+      // Handled internally in generateAutoTags
+    } finally {
+      setIsLoadingAiTags(false);
+    }
+  };
+
+  // Suggest tags automatically for new notes when title/content has sufficient context
+  useEffect(() => {
+    const combined = `${title} ${content}`.trim();
+    if (combined.length >= 6 && tags.length === 0 && suggestedTags.length === 0) {
+      const timer = setTimeout(() => {
+        handleTriggerAiTagging();
+      }, 900);
+      return () => clearTimeout(timer);
+    }
+  }, [title, content]);
 
   // Insert snippet or operator at cursor position
   const insertTextAtCursor = (textToInsert: string) => {
@@ -154,6 +240,30 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     }, 10);
   };
 
+  // Text formatting: wraps selection with markers, bold, italic or underline
+  const wrapSelection = (prefix: string, suffix: string) => {
+    triggerHaptic(10);
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setContent((prev) => prev + prefix + suffix);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const current = textarea.value;
+    const selected = current.substring(start, end);
+    const replacement = selected ? `${prefix}${selected}${suffix}` : `${prefix}выделение${suffix}`;
+    const nextContent = current.substring(0, start) + replacement + current.substring(end);
+    setContent(nextContent);
+
+    setTimeout(() => {
+      textarea.focus();
+      const cursorStart = start + prefix.length;
+      const cursorEnd = cursorStart + (selected ? selected.length : 9);
+      textarea.setSelectionRange(cursorStart, cursorEnd);
+    }, 15);
+  };
+
   // Copy result or insert calculation
   const handleCopyResult = (val: number, cur?: string) => {
     triggerHaptic();
@@ -175,29 +285,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     setContent((prev) => prev + totalStr);
   };
 
-  // Share note text
-  const handleShare = async () => {
+  // Share note text across social media or system share
+  const handleShare = () => {
     triggerHaptic();
-    const shareText = `${title ? title + '\n\n' : ''}${content}${
-      mathSummary.grandTotal > 0
-        ? `\n\nИтого: ${formatMoney(mathSummary.grandTotal, mathSummary.currency)}`
-        : ''
-    }`;
-
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: title || 'Заметка NotebookSmart',
-          text: shareText,
-        });
-      } catch {
-        // Ignored if cancelled
-      }
-    } else if (navigator.clipboard) {
-      await navigator.clipboard.writeText(shareText);
-      setCopiedText('Заметка скопирована!');
-      setTimeout(() => setCopiedText(null), 2000);
-    }
+    setIsSocialShareOpen(true);
   };
 
   // Paper styling class mapping
@@ -669,6 +760,106 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         />
       </div>
 
+      {/* AI AUTO-TAGGING & ORGANIZATION BAR */}
+      <div className="px-4 py-2 bg-stone-50/90 dark:bg-stone-900/50 border-b border-amber-900/10 dark:border-stone-800 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1 text-stone-500 dark:text-stone-400 font-semibold text-[11px] mr-0.5">
+            <Tag className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+            <span>Теги:</span>
+          </div>
+
+          {/* Existing tags */}
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100/90 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-amber-300/80 dark:border-stone-700 font-mono text-[11px] font-bold"
+            >
+              <span>{tag}</span>
+              <button
+                type="button"
+                onClick={() => handleRemoveTag(tag)}
+                className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-100 cursor-pointer p-0.5"
+                title="Удалить тег"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </span>
+          ))}
+
+          {/* Quick Add Custom Tag Input */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (tagInput.trim()) {
+                handleAddTag(tagInput);
+              }
+            }}
+            className="inline-flex items-center"
+          >
+            <input
+              type="text"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              placeholder="+ свой #тег..."
+              className="w-24 px-2 py-0.5 rounded-lg bg-white dark:bg-stone-950 border border-stone-200 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-[11px] font-mono focus:outline-none focus:border-amber-500 focus:w-32 transition-all placeholder-stone-400"
+            />
+          </form>
+
+          {/* AI Generate Tags Button */}
+          <button
+            type="button"
+            onClick={handleTriggerAiTagging}
+            disabled={isLoadingAiTags}
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 active:bg-amber-500/35 text-amber-900 dark:text-amber-300 border border-amber-400/40 text-[11px] font-bold transition active:scale-95 cursor-pointer disabled:opacity-50 ml-auto"
+            title="Автоматически подобрать теги по смыслу заметки с помощью AI"
+          >
+            <Sparkles
+              className={`w-3 h-3 text-amber-600 dark:text-amber-400 ${
+                isLoadingAiTags ? 'animate-spin' : ''
+              }`}
+            />
+            <span>{isLoadingAiTags ? 'Анализ AI...' : 'AI авто-теги'}</span>
+          </button>
+        </div>
+
+        {/* AI Suggestions Row */}
+        {suggestedTags.length > 0 && (
+          <div className="mt-2 pt-1.5 border-t border-stone-200/60 dark:border-stone-800/60 flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] uppercase font-bold text-stone-500 dark:text-stone-400 tracking-wider flex items-center gap-1">
+              <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+              <span>{isAiSource ? 'AI предлагает:' : 'Рекомендации:'}</span>
+            </span>
+            {suggestedTags.map((sug) => (
+              <button
+                key={sug}
+                type="button"
+                onClick={() => handleAddTag(sug)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-800 font-mono text-[11px] font-bold transition active:scale-95 cursor-pointer"
+                title={`Добавить тег ${sug}`}
+              >
+                <span>+</span>
+                <span>{sug}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic();
+                suggestedTags.forEach((s) => {
+                  if (!tags.includes(s)) {
+                    setTags((prev) => [...prev, s]);
+                  }
+                });
+                setSuggestedTags([]);
+              }}
+              className="text-[10px] text-amber-700 dark:text-amber-400 hover:underline font-bold ml-1 cursor-pointer"
+            >
+              Добавить все
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* FINANCIAL BREAKDOWN PANEL: ПРИБЫЛЬ vs РАСХОДЫ vs ОСТАТОК */}
       {(mathSummary.hasIncomeExpenseSplit || category === 'payment') && (
         <div className="mx-3 sm:mx-4 mt-2 bg-white/95 dark:bg-stone-900/90 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-3 shadow-xs">
@@ -720,6 +911,115 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
+      {/* TEXT FORMATTING TOOLBAR (Bold, Italic, Underline, Color Markers & Preview Mode) */}
+      <div className="px-3 sm:px-4 py-1.5 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none shrink-0 text-xs">
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-[10px] uppercase font-bold text-stone-500 dark:text-stone-400 mr-1 flex items-center gap-1">
+            <Highlighter className="w-3 h-3 text-amber-500" />
+            <span className="hidden sm:inline">Стиль:</span>
+          </span>
+
+          {/* Bold Button */}
+          <button
+            type="button"
+            onClick={() => wrapSelection('**', '**')}
+            className="p-1 sm:px-2 sm:py-1 rounded-lg bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-900 dark:text-white border border-stone-200 dark:border-stone-700 font-bold text-xs transition active:scale-95 cursor-pointer shadow-2xs"
+            title="Сделать жирным (**текст**)"
+          >
+            <Bold className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Italic Button */}
+          <button
+            type="button"
+            onClick={() => wrapSelection('*', '*')}
+            className="p-1 sm:px-2 sm:py-1 rounded-lg bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-900 dark:text-white border border-stone-200 dark:border-stone-700 font-serif italic text-xs transition active:scale-95 cursor-pointer shadow-2xs"
+            title="Сделать курсивом (*текст*)"
+          >
+            <Italic className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Underline Button */}
+          <button
+            type="button"
+            onClick={() => wrapSelection('<u>', '</u>')}
+            className="p-1 sm:px-2 sm:py-1 rounded-lg bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-900 dark:text-white border border-stone-200 dark:border-stone-700 underline text-xs transition active:scale-95 cursor-pointer shadow-2xs"
+            title="Подчеркнуть текст (<u>текст</u>)"
+          >
+            <Underline className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Color Highlighters */}
+          <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-stone-200 dark:border-stone-700">
+            {/* Yellow Marker */}
+            <button
+              type="button"
+              onClick={() => wrapSelection('<mark class="marker-yellow">', '</mark>')}
+              className="w-5 h-5 rounded-full bg-yellow-300 hover:scale-110 active:scale-95 border border-yellow-500/50 transition cursor-pointer shadow-2xs"
+              title="Выделить желтым маркером"
+            />
+
+            {/* Green Marker */}
+            <button
+              type="button"
+              onClick={() => wrapSelection('<mark class="marker-green">', '</mark>')}
+              className="w-5 h-5 rounded-full bg-emerald-400 hover:scale-110 active:scale-95 border border-emerald-600/50 transition cursor-pointer shadow-2xs"
+              title="Выделить зеленым маркером"
+            />
+
+            {/* Pink Marker */}
+            <button
+              type="button"
+              onClick={() => wrapSelection('<mark class="marker-pink">', '</mark>')}
+              className="w-5 h-5 rounded-full bg-pink-400 hover:scale-110 active:scale-95 border border-pink-600/50 transition cursor-pointer shadow-2xs"
+              title="Выделить розовым маркером"
+            />
+
+            {/* Blue Marker */}
+            <button
+              type="button"
+              onClick={() => wrapSelection('<mark class="marker-blue">', '</mark>')}
+              className="w-5 h-5 rounded-full bg-sky-400 hover:scale-110 active:scale-95 border border-sky-600/50 transition cursor-pointer shadow-2xs"
+              title="Выделить голубым маркером"
+            />
+
+            {/* Orange Marker */}
+            <button
+              type="button"
+              onClick={() => wrapSelection('<mark class="marker-orange">', '</mark>')}
+              className="w-5 h-5 rounded-full bg-orange-400 hover:scale-110 active:scale-95 border border-orange-600/50 transition cursor-pointer shadow-2xs"
+              title="Выделить оранжевым маркером"
+            />
+
+            {/* Purple Marker */}
+            <button
+              type="button"
+              onClick={() => wrapSelection('<mark class="marker-purple">', '</mark>')}
+              className="w-5 h-5 rounded-full bg-purple-400 hover:scale-110 active:scale-95 border border-purple-600/50 transition cursor-pointer shadow-2xs"
+              title="Выделить сиреневым маркером"
+            />
+          </div>
+        </div>
+
+        {/* Mode Switcher: Edit or Preview */}
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptic();
+            setIsPreviewMode(!isPreviewMode);
+          }}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold transition active:scale-95 border cursor-pointer shrink-0 ${
+            isPreviewMode
+              ? 'bg-amber-600 text-white border-amber-500 shadow-xs'
+              : 'bg-white hover:bg-stone-100 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+          }`}
+          title={isPreviewMode ? 'Переключиться в режим ввода текста' : 'Посмотреть форматирование и маркеры'}
+        >
+          {isPreviewMode ? <Edit3 className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          <span>{isPreviewMode ? 'Редактировать' : 'Красивый вид'}</span>
+        </button>
+      </div>
+
       {/* НАСТОЯЩИЙ ЛИСТ БУМАГИ С ПОЛЯМИ, ПЕРФОРАЦИЕЙ И СПИРАЛЬЮ */}
       <div className="flex-1 flex overflow-hidden relative m-2.5 sm:m-3 rounded-2xl border border-amber-900/15 dark:border-stone-700/80 notebook-paper-shadow page-dog-ear">
         {/* Notebook Spiral Left Border (Реалистичные кольца тетради) */}
@@ -732,59 +1032,71 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           ))}
         </div>
 
-        {/* Notebook Sheet Body with selected Paper Style and Red Margins */}
-        <div className={`flex-1 flex overflow-hidden relative p-3 sm:p-4 gap-2.5 ${paperClass} notebook-margin-red notebook-punch-holes text-stone-900 dark:text-stone-100`}>
-          {/* Main Textarea aligned on paper lines/grid */}
-          <div className="flex-1 h-full relative pl-8 sm:pl-9">
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder={
-                category === 'payment'
-                  ? `Учет финансов в тетрадке:
-=== Доходы ===
-+ Зарплата: 95 000 руб
-+ Премия: 15 000
+        {/* Notebook Sheet Body with selected Paper Style and Red Margins (at 56px) */}
+        <div className={`flex-1 flex overflow-hidden relative p-0 gap-1 ${paperClass} notebook-margin-red text-stone-900 dark:text-stone-100`}>
+          {/* Main Textarea aligned on paper lines/grid strictly to the right of red margin (pl-16 = 64px) */}
+          <div className="flex-1 h-full relative pl-16 pr-2 sm:pr-3 overflow-hidden">
+            {isPreviewMode ? (
+              <div
+                className="w-full h-full overflow-y-auto font-mono text-sm leading-[28px] selectable-text text-stone-900 dark:text-stone-100 pt-[14px]"
+                style={{ lineHeight: '28px', fontSize: '15px' }}
+              >
+                {content.split('\n').map((line, idx) => {
+                  let html = line
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/&lt;u&gt;(.*?)&lt;\/u&gt;/gi, '<u class="underline decoration-stone-600 dark:decoration-stone-300 underline-offset-2">$1</u>')
+                    .replace(/&lt;mark class="marker-yellow"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-yellow">$1</mark>')
+                    .replace(/&lt;mark class="marker-green"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-green">$1</mark>')
+                    .replace(/&lt;mark class="marker-pink"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-pink">$1</mark>')
+                    .replace(/&lt;mark class="marker-blue"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-blue">$1</mark>')
+                    .replace(/&lt;mark class="marker-orange"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-orange">$1</mark>')
+                    .replace(/&lt;mark class="marker-purple"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-purple">$1</mark>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-stone-950 dark:text-white">$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+                    .replace(/^- \[ \]/g, '⬜ ')
+                    .replace(/^- \[x\]/gi, '✅ ');
 
-=== Расходы ===
-- Аренда: 35 000 руб
-- Продукты: 18 500
-- Коммуналка: 4 500
-
-Остаток в итоге:`
-                  : category === 'shopping'
-                  ? `Список продуктов в тетрадке:
-- [ ] Молоко 3.2% 2 л
-- [ ] Сыр 400 г
-- [ ] Хлеб 1 шт
-- [ ] Кофе 1 пачка`
-                  : category === 'event'
-                  ? `План события в тетради:
-14:00 — Встреча с коллегами
-Кофе-брейк: 450 * 4
-Подготовить отчет и слайды`
-                  : `Заметки в тетрадке и быстрый расчет:
-Аренда: 35000 руб
-Свет + вода: 2400 + 1350
-Обед: 450 * 2
-Итого к оплате:`
-              }
-              className="w-full h-full bg-transparent resize-none focus:outline-none font-mono text-sm leading-6 selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-500/70 dark:placeholder-stone-400 font-medium"
-            />
+                  return (
+                    <div
+                      key={idx}
+                      className="h-[28px] leading-[28px] truncate"
+                      dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <textarea
+                ref={textareaRef}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder={
+                  category === 'payment'
+                    ? `Учет финансов в тетрадке:\n=== Доходы ===\n+ Зарплата: 95 000 руб\n+ Премия: 15 000\n\n=== Расходы ===\n- Аренда: 35 000 руб\n- Продукты: 18 500\n- Коммуналка: 4 500\n\nОстаток в итоге:`
+                    : category === 'shopping'
+                    ? `Список продуктов в тетрадке:\n- [ ] Молоко 3.2% 2 л\n- [ ] Сыр 400 г\n- [ ] Хлеб 1 шт\n- [ ] Кофе 1 пачка`
+                    : category === 'event'
+                    ? `План события в тетради:\n14:00 — Встреча с коллегами\nКофе-брейк: 450 * 4\nПодготовить отчет и слайды`
+                    : `Заметки в тетрадке и быстрый расчет:\nАренда: 35000 руб\nСвет + вода: 2400 + 1350\nОбед: 450 * 2\nИтого к оплате:`
+                }
+                style={{
+                  lineHeight: '28px',
+                  fontSize: '15px',
+                  paddingTop: '14px',
+                }}
+                className="w-full h-full bg-transparent resize-none focus:outline-none font-mono text-sm selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-500/70 dark:placeholder-stone-400 font-medium overflow-y-auto"
+              />
+            )}
           </div>
 
-          {/* Live Math Results Margin (Soulver / Calca style) */}
+          {/* Live Math Results Margin (aligned exactly to 28px lines) */}
           {mathSummary.totalCalculatedLines > 0 && (
-            <div className="w-28 sm:w-36 h-full overflow-y-auto pl-2 border-l border-amber-900/15 dark:border-stone-700/60 flex flex-col font-mono text-xs select-none shrink-0">
-              <div className="text-[10px] font-bold text-stone-600 dark:text-stone-300 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <Calculator className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                <span>Расчет</span>
-              </div>
-
-              <div className="space-y-1">
+            <div className="w-28 sm:w-36 h-full overflow-y-auto pl-2 border-l border-amber-900/15 dark:border-stone-700/60 flex flex-col font-mono text-xs select-none shrink-0 pt-[14px]">
+              <div className="space-y-0">
                 {mathSummary.lines.map((line, idx) => (
-                  <div key={idx} className="h-6 flex items-center justify-end">
+                  <div key={idx} className="h-[28px] flex items-center justify-end leading-[28px]">
                     {line.result !== null ? (
                       <button
                         onClick={() => handleCopyResult(line.result!, line.currency)}
@@ -825,8 +1137,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
-      {/* Floating Cashflow / Grand Total Bar */}
-      {mathSummary.totalCalculatedLines > 0 && (
+      {/* Floating Cashflow / Grand Total Bar (Supports money ₽ and pieces шт.) */}
+      {(mathSummary.totalCalculatedLines > 0 || (mathSummary.totalPieces || 0) > 0) && (
         <div className="mx-3 sm:mx-4 mb-2 bg-white/95 dark:bg-stone-900/95 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
@@ -834,10 +1146,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             </div>
             <div>
               <span className="text-[11px] text-stone-600 dark:text-stone-400 uppercase font-bold tracking-wide">
-                {mathSummary.hasIncomeExpenseSplit ? 'Остаток в итоге:' : 'Итого к оплате:'}
+                {mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
+                  ? 'Итого количество:'
+                  : mathSummary.hasIncomeExpenseSplit
+                  ? 'Остаток в итоге:'
+                  : 'Итого к оплате:'}
               </span>
               <div className="text-base sm:text-lg font-bold text-stone-900 dark:text-white font-mono leading-none">
-                {formatMoney(mathSummary.grandTotal, mathSummary.currency)}
+                {mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
+                  ? `${mathSummary.totalPieces || 0} шт.`
+                  : (mathSummary.totalPieces || 0) > 0
+                  ? `${formatMoney(mathSummary.grandTotal, mathSummary.currency)} | ${mathSummary.totalPieces} шт.`
+                  : formatMoney(mathSummary.grandTotal, mathSummary.currency)}
               </div>
             </div>
           </div>
@@ -852,7 +1172,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
-      {/* Quick Keypad Toolbar: Math + Income/Expense Presets */}
+      {/* Quick Keypad Toolbar: Math + Income/Expense Presets + Pieces */}
       <div className="px-3 py-2 bg-stone-100/90 dark:bg-stone-900 border-t border-amber-900/10 dark:border-stone-800 flex items-center gap-1.5 overflow-x-auto scrollbar-none shrink-0">
         {[
           { label: '🟢 + Доход', insert: '\n+ Зарплата: 50 000 руб' },
@@ -865,6 +1185,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           { label: '%', insert: '%' },
           { label: '-10%', insert: ' - 10%' },
           { label: '₽', insert: ' руб' },
+          { label: '📦 шт.', insert: ' шт' },
           { label: 'к', insert: 'к' },
           { label: '- [ ] Чекбокс', insert: '\n- [ ] ' },
           { label: '• Список', insert: '\n• ' },
@@ -879,6 +1200,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </button>
         ))}
       </div>
+
+      {/* Social Media Share Modal */}
+      <ShareNoteModal
+        note={{
+          ...note,
+          title,
+          content,
+          tags,
+          cachedTotal: mathSummary.grandTotal,
+          currency: mathSummary.currency,
+          cachedPieces: mathSummary.totalPieces,
+        }}
+        isOpen={isSocialShareOpen}
+        onClose={() => setIsSocialShareOpen(false)}
+      />
     </div>
   );
 };

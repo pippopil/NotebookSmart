@@ -119,6 +119,7 @@ export function enrichNoteMetadata(note: Note): Note {
     cachedIncome: math.totalIncome,
     cachedExpenses: math.totalExpenses,
     cachedNetBalance: math.netBalance,
+    cachedPieces: math.totalPieces,
     currency: math.currency,
     shoppingItemsCount: shopping.length,
     completedItemsCount: shopping.filter((i) => i.isCompleted).length,

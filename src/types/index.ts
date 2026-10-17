@@ -31,6 +31,7 @@ export interface Note {
   cachedIncome?: number;
   cachedExpenses?: number;
   cachedNetBalance?: number;
+  cachedPieces?: number;
   currency?: string;
   shoppingItemsCount?: number;
   completedItemsCount?: number;
@@ -84,6 +85,7 @@ export interface LineCalculation {
   label: string;
   isTotalLine: boolean;
   type: 'income' | 'expense' | 'total' | 'neutral';
+  isPieceCalculation?: boolean;
 }
 
 export interface NoteCalculationSummary {
@@ -97,6 +99,8 @@ export interface NoteCalculationSummary {
   currency: string;
   totalCalculatedLines: number;
   breakdownByCurrency: Record<string, number>;
+  totalPieces?: number;
+  hasPiecesCalculation?: boolean;
 }
 
 export interface ShoppingItem {
@@ -165,4 +169,16 @@ export interface SyncStatus {
   lastSyncedAt: number;
   syncMethod: 'firebase' | 'local';
   roomCode?: string;
+}
+
+export interface SecurityConfig {
+  isPasscodeSet: boolean;
+  passcodeHash?: string;
+  passcodeSalt?: string;
+  protectFinance: boolean;   // Protect 'calc' (payments/budget) tab and payment notes
+  protectShopping: boolean;  // Protect 'shopping' tab and shopping notes
+  protectArchive: boolean;   // Protect 'archive' tab
+  biometricEnabled: boolean; // Face ID / Fingerprint / WebAuthn
+  credentialId?: string;
+  autoLockMinutes: number;   // 0 = immediate, 1 = 1m, 5 = 5m, 15 = 15m, -1 = session
 }
