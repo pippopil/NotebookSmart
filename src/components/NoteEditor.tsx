@@ -36,10 +36,14 @@ import {
   Edit3,
   Send,
   MessageCircle,
+  Mic,
+  MicOff,
+  Square,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { ShareNoteModal } from './ShareNoteModal';
 import { useSwipeBack } from '../hooks/useSwipeBack';
+import { useSpeechDictation } from '../hooks/useSpeechDictation';
 import {
   getNotificationPermission,
   requestNotificationPermission,
@@ -240,6 +244,56 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     }, 10);
   };
 
+  // Voice Dictation (Web Speech API)
+  const [useSmartPunctuation, setUseSmartPunctuation] = useState<boolean>(true);
+
+  const handleSpeechFinal = (finalChunk: string) => {
+    triggerHaptic(10);
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const current = textarea.value;
+      let textToInsert = finalChunk;
+      if (
+        start > 0 &&
+        !/\s$/.test(current.substring(0, start)) &&
+        !/^\s/.test(textToInsert) &&
+        !/^[.,;:!?]/.test(textToInsert)
+      ) {
+        textToInsert = ' ' + textToInsert;
+      }
+      const nextContent = current.substring(0, start) + textToInsert + current.substring(end);
+      setContent(nextContent);
+      setTimeout(() => {
+        textarea.focus();
+        const newPos = start + textToInsert.length;
+        textarea.setSelectionRange(newPos, newPos);
+      }, 10);
+    } else {
+      setContent((prev) => {
+        if (!prev) return finalChunk.trim();
+        const needsSpace = !/\s$/.test(prev) && !/^[.,;:!?]/.test(finalChunk);
+        return prev + (needsSpace ? ' ' : '') + finalChunk;
+      });
+    }
+  };
+
+  const {
+    isListening,
+    interimTranscript,
+    error: speechError,
+    clearError: clearSpeechError,
+    isSupported: isSpeechSupported,
+    startListening,
+    stopListening,
+    toggleListening,
+  } = useSpeechDictation({
+    onFinalTranscript: handleSpeechFinal,
+    lang: 'ru-RU',
+    smartPunctuation: useSmartPunctuation,
+  });
+
   // Text formatting: wraps selection with markers, bold, italic or underline
   const wrapSelection = (prefix: string, suffix: string) => {
     triggerHaptic(10);
@@ -381,6 +435,41 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               <span>{shoppingItems.length}</span>
             </button>
           )}
+
+          {/* Voice dictation button in top bar (Web Speech API) */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic();
+              if (!isSpeechSupported) {
+                setCopiedText('Голосовой ввод не поддерживается браузером');
+                setTimeout(() => setCopiedText(null), 2500);
+                return;
+              }
+              toggleListening();
+            }}
+            className={`p-1.5 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1 ${
+              isListening
+                ? 'bg-rose-500 hover:bg-rose-600 text-white border border-rose-600 shadow-md animate-pulse'
+                : 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700'
+            }`}
+            title={
+              isListening
+                ? 'Идет запись... Нажмите, чтобы остановить'
+                : isSpeechSupported
+                ? 'Диктовать заметку голосом (Web Speech API)'
+                : 'Голосовой ввод не поддерживается в этом браузере'
+            }
+          >
+            {isListening ? (
+              <>
+                <Mic className="w-4 h-4 animate-bounce text-white" />
+                <span className="text-[11px] font-bold hidden sm:inline text-white">Запись...</span>
+              </>
+            ) : (
+              <Mic className="w-4 h-4 text-rose-500 dark:text-rose-400" />
+            )}
+          </button>
 
           {/* Pin note button */}
           <button
@@ -1001,24 +1090,191 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </div>
         </div>
 
-        {/* Mode Switcher: Edit or Preview */}
-        <button
-          type="button"
-          onClick={() => {
-            triggerHaptic();
-            setIsPreviewMode(!isPreviewMode);
-          }}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold transition active:scale-95 border cursor-pointer shrink-0 ${
-            isPreviewMode
-              ? 'bg-amber-600 text-white border-amber-500 shadow-xs'
-              : 'bg-white hover:bg-stone-100 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
-          }`}
-          title={isPreviewMode ? 'Переключиться в режим ввода текста' : 'Посмотреть форматирование и маркеры'}
-        >
-          {isPreviewMode ? <Edit3 className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-          <span>{isPreviewMode ? 'Редактировать' : 'Красивый вид'}</span>
-        </button>
+        {/* Right Tools: Voice Dictation & Mode Switcher */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Voice Dictation Button in Toolbar */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic();
+              if (!isSpeechSupported) {
+                setCopiedText('Голосовой ввод не поддерживается браузером');
+                setTimeout(() => setCopiedText(null), 2500);
+                return;
+              }
+              toggleListening();
+            }}
+            className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-semibold transition active:scale-95 border cursor-pointer shrink-0 ${
+              isListening
+                ? 'bg-rose-500 hover:bg-rose-600 text-white border-rose-600 animate-pulse shadow-xs'
+                : 'bg-white hover:bg-rose-50/80 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+            }`}
+            title={isListening ? 'Остановить запись голоса' : 'Диктовать заметку голосом (Web Speech API)'}
+          >
+            <Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce text-white' : 'text-rose-500'}`} />
+            <span>{isListening ? 'Слушаю...' : 'Диктовка'}</span>
+          </button>
+
+          {/* Mode Switcher: Edit or Preview */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic();
+              setIsPreviewMode(!isPreviewMode);
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold transition active:scale-95 border cursor-pointer shrink-0 ${
+              isPreviewMode
+                ? 'bg-amber-600 text-white border-amber-500 shadow-xs'
+                : 'bg-white hover:bg-stone-100 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+            }`}
+            title={isPreviewMode ? 'Переключиться в режим ввода текста' : 'Посмотреть форматирование и маркеры'}
+          >
+            {isPreviewMode ? <Edit3 className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            <span>{isPreviewMode ? 'Редактировать' : 'Красивый вид'}</span>
+          </button>
+        </div>
       </div>
+
+      {/* ACTIVE VOICE DICTATION DOCKED BANNER (Web Speech API) */}
+      {isListening && (
+        <div className="mx-2.5 sm:mx-3 mt-1.5 p-2 sm:p-2.5 rounded-2xl bg-rose-50/95 dark:bg-rose-950/60 border-2 border-rose-400 dark:border-rose-600 shadow-md animate-in fade-in shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-rose-800 dark:text-rose-200">
+                  🎙️ Диктовка голосом
+                </span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-rose-200/80 dark:bg-rose-900/80 text-rose-900 dark:text-rose-100 font-mono font-bold">
+                  REC
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {/* Smart punctuation toggle */}
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic(10);
+                  setUseSmartPunctuation(!useSmartPunctuation);
+                }}
+                className={`text-[10px] px-2 py-0.5 rounded-lg border transition font-medium cursor-pointer ${
+                  useSmartPunctuation
+                    ? 'bg-rose-100 dark:bg-rose-900/80 border-rose-300 dark:border-rose-600 text-rose-800 dark:text-rose-200'
+                    : 'bg-stone-100 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-500'
+                }`}
+                title="Автоматически заменять слова 'точка', 'запятая', 'новая строка' на знаки препинания"
+              >
+                Пунктуация: {useSmartPunctuation ? 'ВКЛ' : 'ВЫКЛ'}
+              </button>
+
+              {/* Stop button */}
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic(15);
+                  stopListening();
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer"
+                title="Остановить запись голоса"
+              >
+                <Square className="w-3 h-3 fill-white" />
+                <span>Завершить</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Real-time recognized speech preview */}
+          <div className="mt-1.5 px-2.5 py-1.5 rounded-xl bg-white/95 dark:bg-stone-900/90 border border-rose-200 dark:border-rose-800/60 text-xs font-mono min-h-[32px] flex items-center">
+            {interimTranscript ? (
+              <span className="text-stone-900 dark:text-stone-100 italic">
+                «{interimTranscript}»
+              </span>
+            ) : (
+              <span className="text-stone-400 dark:text-stone-500">
+                Говорите в микрофон, текст печатается прямо в тетрадь...
+              </span>
+            )}
+          </div>
+
+          {/* Quick Voice Punctuation & Snippets Chips */}
+          <div className="mt-1.5 flex items-center gap-1 overflow-x-auto scrollbar-none pb-0.5 text-[11px]">
+            <span className="text-[10px] font-bold text-stone-500 dark:text-stone-400 uppercase shrink-0 mr-0.5">
+              Вставить:
+            </span>
+            <button
+              type="button"
+              onClick={() => insertTextAtCursor('\n')}
+              className="px-2 py-0.5 rounded-md bg-white dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-mono cursor-pointer shrink-0"
+            >
+              ↵ Новая строка
+            </button>
+            <button
+              type="button"
+              onClick={() => insertTextAtCursor(', ')}
+              className="px-2 py-0.5 rounded-md bg-white dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-mono cursor-pointer shrink-0"
+            >
+              , Запятая
+            </button>
+            <button
+              type="button"
+              onClick={() => insertTextAtCursor('. ')}
+              className="px-2 py-0.5 rounded-md bg-white dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-mono cursor-pointer shrink-0"
+            >
+              . Точка
+            </button>
+            <button
+              type="button"
+              onClick={() => insertTextAtCursor('? ')}
+              className="px-2 py-0.5 rounded-md bg-white dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-mono cursor-pointer shrink-0"
+            >
+              ? Вопрос
+            </button>
+            <button
+              type="button"
+              onClick={() => insertTextAtCursor(': ')}
+              className="px-2 py-0.5 rounded-md bg-white dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-mono cursor-pointer shrink-0"
+            >
+              : Двоеточие
+            </button>
+            <button
+              type="button"
+              onClick={() => insertTextAtCursor(' — ')}
+              className="px-2 py-0.5 rounded-md bg-white dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-mono cursor-pointer shrink-0"
+            >
+              — Тире
+            </button>
+            <button
+              type="button"
+              onClick={() => insertTextAtCursor(' руб')}
+              className="px-2 py-0.5 rounded-md bg-white dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-mono cursor-pointer shrink-0"
+            >
+              ₽ руб
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Voice Error Banner */}
+      {speechError && (
+        <div className="mx-2.5 sm:mx-3 mt-1.5 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs flex items-center justify-between gap-2 shadow-xs shrink-0">
+          <div className="flex items-center gap-1.5">
+            <MicOff className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>{speechError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearSpeechError}
+            className="p-1 rounded-lg hover:bg-amber-200/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* НАСТОЯЩИЙ ЛИСТ БУМАГИ С ПОЛЯМИ, ПЕРФОРАЦИЕЙ И СПИРАЛЬЮ */}
       <div className="flex-1 flex overflow-hidden relative m-2.5 sm:m-3 rounded-2xl border border-amber-900/15 dark:border-stone-700/80 notebook-paper-shadow page-dog-ear">
@@ -1172,8 +1428,30 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
-      {/* Quick Keypad Toolbar: Math + Income/Expense Presets + Pieces */}
+      {/* Quick Keypad Toolbar: Math + Income/Expense Presets + Pieces + Voice */}
       <div className="px-3 py-2 bg-stone-100/90 dark:bg-stone-900 border-t border-amber-900/10 dark:border-stone-800 flex items-center gap-1.5 overflow-x-auto scrollbar-none shrink-0">
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptic();
+            if (!isSpeechSupported) {
+              setCopiedText('Голосовой ввод не поддерживается браузером');
+              setTimeout(() => setCopiedText(null), 2500);
+              return;
+            }
+            toggleListening();
+          }}
+          className={`px-2.5 py-1.5 rounded-lg font-mono text-xs font-bold whitespace-nowrap active:scale-95 transition border shadow-2xs cursor-pointer flex items-center gap-1 shrink-0 ${
+            isListening
+              ? 'bg-rose-500 text-white border-rose-600 animate-pulse'
+              : 'bg-rose-50 hover:bg-rose-100 dark:bg-stone-800 dark:hover:bg-stone-700 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-stone-700'
+          }`}
+          title={isListening ? 'Остановить запись голоса' : 'Диктовать заметку голосом'}
+        >
+          <Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce text-white' : 'text-rose-500'}`} />
+          <span>{isListening ? 'Слушаю...' : '🎙️ Диктовка'}</span>
+        </button>
+
         {[
           { label: '🟢 + Доход', insert: '\n+ Зарплата: 50 000 руб' },
           { label: '🔴 - Расход', insert: '\n- Трата: 2 500 руб' },

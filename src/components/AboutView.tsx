@@ -30,6 +30,7 @@ import {
   Clock,
   Layers,
   Heart,
+  Mic,
 } from 'lucide-react';
 
 interface AboutViewProps {
@@ -355,6 +356,20 @@ export const AboutView: React.FC<AboutViewProps> = ({
               </strong>
               <p className="text-stone-600 dark:text-stone-400 leading-snug">
                 Красивое оформление заметок для отправки в мессенджер МАКС, Telegram, WhatsApp и VKontakte.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 p-3 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800">
+            <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-700 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <Mic className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Голосовой ввод (Web Speech API)
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Быстрая диктовка мыслей и списков голосом в NoteEditor с умной авто-пунктуацией и голосовыми командами.
               </p>
             </div>
           </div>
