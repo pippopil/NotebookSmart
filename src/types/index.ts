@@ -112,6 +112,10 @@ export interface ShoppingItem {
   category: ShoppingCategory;
   isCompleted: boolean;
   estimatedPriceRub?: number;
+  price?: number;
+  unitPrice?: number;
+  currency?: string;
+  hasCustomPrice?: boolean;
   lineIndex?: number;
 }
 

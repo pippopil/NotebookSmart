@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Note, ShoppingItem, NearbyStore } from '../types';
+import { Geolocation } from '@capacitor/geolocation';
 import {
   STORE_OPTIONS,
   CATEGORY_META,
@@ -12,6 +13,8 @@ import {
   reverseGeocodeCoords,
   MAJOR_CITIES,
   LocationInfo,
+  fetchIpLocation,
+  determineBestUserLocation,
 } from '../utils/geoStores';
 import {
   calculateBasketMinPrices,
@@ -40,6 +43,9 @@ import {
   Plus,
   Tag,
   Star,
+  Globe,
+  HelpCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 interface ShoppingViewProps {
@@ -66,15 +72,26 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState<string | null>(null);
   const [showCityPicker, setShowCityPicker] = useState(false);
-  const [locationInfo, setLocationInfo] = useState<LocationInfo>({
-    lat: 55.7558,
-    lng: 37.6173,
-    city: 'Москва',
-    formattedAddress: 'Москва (по умолчанию)',
-    source: 'default',
+  const [locationInfo, setLocationInfo] = useState<LocationInfo>(() => {
+    try {
+      const saved = localStorage.getItem('smart_notepad_location');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed.lat === 'number' && typeof parsed.lng === 'number') {
+          return parsed;
+        }
+      }
+    } catch {}
+    return {
+      lat: 55.7558,
+      lng: 37.6173,
+      city: 'Москва',
+      formattedAddress: 'Москва (по умолчанию)',
+      source: 'default',
+    };
   });
   const [nearbyStores, setNearbyStores] = useState<NearbyStore[]>(() =>
-    getNearbyStores(55.7558, 37.6173, 'Москва')
+    getNearbyStores(locationInfo.lat, locationInfo.lng, locationInfo.city)
   );
 
   // Expanded stores state for collapsing/expanding items list
@@ -191,8 +208,99 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
     setShowQuickAdd(false);
   };
 
-  // Check initial browser permission status if supported
+  // Permission & Location state
+  const [showPermissionHelp, setShowPermissionHelp] = useState(false);
+  const [ipStatusMsg, setIpStatusMsg] = useState<string | null>(null);
+
+  // Apply resolved coordinates, geocode them, update stores & persist
+  const applyCoordinates = async (lat: number, lng: number, source: 'gps' | 'ip') => {
+    try {
+      const rev = await reverseGeocodeCoords(lat, lng);
+      const newLoc: LocationInfo = {
+        lat,
+        lng,
+        city: rev.city || 'Ваш город',
+        formattedAddress:
+          rev.formattedAddress ||
+          `${rev.city || 'Координаты'} (${lat.toFixed(3)}, ${lng.toFixed(3)})`,
+        source,
+      };
+      setLocationInfo(newLoc);
+      setNearbyStores(getNearbyStores(lat, lng, rev.city));
+      try {
+        localStorage.setItem('smart_notepad_location', JSON.stringify(newLoc));
+      } catch {}
+      return newLoc;
+    } catch {
+      const fallbackLoc: LocationInfo = {
+        lat,
+        lng,
+        city: 'Рядом с вами',
+        formattedAddress: `${source === 'gps' ? 'GPS' : 'Сеть'} координаты (${lat.toFixed(3)}, ${lng.toFixed(3)})`,
+        source,
+      };
+      setLocationInfo(fallbackLoc);
+      setNearbyStores(getNearbyStores(lat, lng, 'Рядом с вами'));
+      try {
+        localStorage.setItem('smart_notepad_location', JSON.stringify(fallbackLoc));
+      } catch {}
+      return fallbackLoc;
+    }
+  };
+
+  // Detect location via IP lookup (server or client-side fallback)
+  const detectLocationViaIp = async (): Promise<boolean> => {
+    try {
+      const ipLoc = await fetchIpLocation();
+      if (ipLoc) {
+        setLocationInfo(ipLoc);
+        setNearbyStores(getNearbyStores(ipLoc.lat, ipLoc.lng, ipLoc.city));
+        try {
+          localStorage.setItem('smart_notepad_location', JSON.stringify(ipLoc));
+        } catch {}
+        return true;
+      }
+    } catch {
+      // IP lookup failed
+    }
+    return false;
+  };
+
+  // Direct 1-tap Network / IP location detection
+  const handleRequestIpOnly = async () => {
+    triggerHaptic();
+    setGeoLoading(true);
+    setGeoError(null);
+    try {
+      const ipLoc = await fetchIpLocation();
+      if (ipLoc) {
+        setLocationInfo(ipLoc);
+        setNearbyStores(getNearbyStores(ipLoc.lat, ipLoc.lng, ipLoc.city));
+        try {
+          localStorage.setItem('smart_notepad_location', JSON.stringify(ipLoc));
+        } catch {}
+        setIpStatusMsg(`Определено по сети: ${ipLoc.city || 'Ваш город'}`);
+        setTimeout(() => setIpStatusMsg(null), 4000);
+      } else {
+        setGeoError('Не удалось автоматически определить город по сети. Выберите город вручную из списка ниже.');
+        setShowCityPicker(true);
+      }
+    } catch {
+      setGeoError('Не удалось определить город по сети. Выберите город вручную.');
+      setShowCityPicker(true);
+    } finally {
+      setGeoLoading(false);
+    }
+  };
+
+  // Check initial permissions and auto-detect if still on default
   useEffect(() => {
+    // If user has default placeholder, detect their real city via IP in background
+    if (locationInfo.source === 'default') {
+      detectLocationViaIp();
+    }
+
+    // Check browser permission status if supported
     if (typeof navigator !== 'undefined' && 'permissions' in navigator) {
       navigator.permissions
         .query({ name: 'geolocation' as PermissionName })
@@ -200,6 +308,9 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
           setGeoPermissionState(status.state as any);
           status.onchange = () => {
             setGeoPermissionState(status.state as any);
+            if (status.state === 'granted') {
+              handleRequestGeolocation(false);
+            }
           };
           if (status.state === 'granted') {
             handleRequestGeolocation(false);
@@ -211,71 +322,48 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
     }
   }, []);
 
-  // Request high-accuracy GPS with explicit user consent
-  const handleRequestGeolocation = (userTriggered = true) => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setGeoError('Геолокация не поддерживается вашим браузером');
-      return;
-    }
-
+  // Request GPS with multi-tier fallback: Capacitor Native -> Browser GPS -> IP detection
+  const handleRequestGeolocation = async (userTriggered = true) => {
     triggerHaptic();
     setGeoLoading(true);
     setGeoError(null);
 
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setGeoPermissionState('granted');
+    try {
+      const result = await determineBestUserLocation();
+      setLocationInfo(result.location);
+      setNearbyStores(getNearbyStores(result.location.lat, result.location.lng, result.location.city));
+      try {
+        localStorage.setItem('smart_notepad_location', JSON.stringify(result.location));
+      } catch {}
 
-        try {
-          const rev = await reverseGeocodeCoords(lat, lng);
-          const newLoc: LocationInfo = {
-            lat,
-            lng,
-            city: rev.city,
-            formattedAddress: rev.formattedAddress,
-            source: 'gps',
-          };
-          setLocationInfo(newLoc);
-          setNearbyStores(getNearbyStores(lat, lng, rev.city));
-          setGeoLoading(false);
-        } catch (err) {
-          setLocationInfo({
-            lat,
-            lng,
-            city: 'Рядом с вами',
-            formattedAddress: `GPS координаты (${lat.toFixed(3)}, ${lng.toFixed(3)})`,
-            source: 'gps',
-          });
-          setNearbyStores(getNearbyStores(lat, lng, 'Рядом с вами'));
-          setGeoLoading(false);
-        }
-      },
-      (err) => {
-        setGeoLoading(false);
-        if (err.code === err.PERMISSION_DENIED) {
+      if (result.location.source === 'gps') {
+        setGeoPermissionState('granted');
+        setGeoError(null);
+      } else {
+        // Location determined via network/IP
+        if (result.isGpsDenied) {
           setGeoPermissionState('denied');
           if (userTriggered) {
             setGeoError(
-              'Доступ к геолокации запрещен в браузере. Выберите город вручную из списка ниже.'
+              `Определено по сети: г. ${result.location.city || 'Ваш город'}. В браузере заблокирован доступ к точному GPS. Если вам нужна точность до метра, разрешите доступ в настройках.`
             );
-            setShowCityPicker(true);
           }
-        } else if (err.code === err.POSITION_UNAVAILABLE) {
-          setGeoError('GPS сигнал недоступен. Выберите город вручную.');
-          setShowCityPicker(true);
-        } else if (err.code === err.TIMEOUT) {
-          setGeoError('Таймаут определения координат. Попробуйте снова или выберите город.');
-          setShowCityPicker(true);
+        } else if (userTriggered) {
+          setIpStatusMsg(`Местоположение найдено по сети: г. ${result.location.city}`);
+          setTimeout(() => setIpStatusMsg(null), 4000);
         }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000,
       }
-    );
+    } catch {
+      const ipOk = await detectLocationViaIp();
+      if (!ipOk && userTriggered) {
+        setGeoError(
+          'Не удалось определить координаты по GPS или сети. Выберите город вручную из списка ниже.'
+        );
+        setShowCityPicker(true);
+      }
+    } finally {
+      setGeoLoading(false);
+    }
   };
 
   // Manual city selection
@@ -292,6 +380,9 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
     };
     setLocationInfo(newLoc);
     setNearbyStores(getNearbyStores(c.lat, c.lng, c.name));
+    try {
+      localStorage.setItem('smart_notepad_location', JSON.stringify(newLoc));
+    } catch {}
     setShowCityPicker(false);
     setGeoError(null);
   };
@@ -599,6 +690,11 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
                     GPS Активен
                   </span>
                 )}
+                {locationInfo.source === 'ip' && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-50 dark:bg-sky-500/20 text-sky-700 dark:text-sky-300 font-bold border border-sky-200 dark:border-sky-500/30">
+                    🌐 По сети (IP)
+                  </span>
+                )}
                 {locationInfo.source === 'manual' && (
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-indigo-500/20 text-amber-900 dark:text-indigo-300 font-bold border border-amber-200 dark:border-indigo-500/30">
                     Город выбран
@@ -619,9 +715,20 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
               onClick={() => handleRequestGeolocation(true)}
               disabled={geoLoading}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs transition active:scale-95 shadow-md shadow-amber-500/20 disabled:opacity-50 cursor-pointer"
+              title="Запросить точные координаты GPS у браузера или телефона"
             >
               <Navigation className={`w-3.5 h-3.5 ${geoLoading ? 'animate-spin' : ''}`} />
-              <span>{geoLoading ? 'Определение GPS...' : 'Определить по GPS'}</span>
+              <span>{geoLoading ? 'Определение...' : 'Определить по GPS'}</span>
+            </button>
+
+            <button
+              onClick={handleRequestIpOnly}
+              disabled={geoLoading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-100 hover:bg-sky-200 dark:bg-sky-950/60 dark:hover:bg-sky-900/60 text-sky-900 dark:text-sky-300 font-semibold text-xs border border-sky-300/80 dark:border-sky-800 transition active:scale-95 cursor-pointer"
+              title="Определить ваш город по сети/интернету без запроса разрешений"
+            >
+              <Globe className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+              <span>По сети (IP)</span>
             </button>
 
             <button
@@ -633,20 +740,87 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
           </div>
         </div>
 
+        {/* Network IP success feedback */}
+        {ipStatusMsg && (
+          <div className="mt-3 pt-3 border-t border-sky-500/30 flex items-center gap-2 text-xs text-sky-800 dark:text-sky-300 font-medium">
+            <Globe className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+            <span>{ipStatusMsg}</span>
+          </div>
+        )}
+
         {/* Permission explanation or error banner */}
         {geoPermissionState === 'prompt' && locationInfo.source === 'default' && (
           <div className="mt-3 pt-3 border-t border-amber-900/10 dark:border-stone-800 flex items-center gap-2 text-xs text-stone-600 dark:text-cyan-200/80">
             <Compass className="w-4 h-4 text-amber-600 dark:text-cyan-400 shrink-0" />
             <span>
-              Нажмите <strong>«Определить по GPS»</strong>, чтобы браузер запросил разрешение на геолокацию и показал магазины в вашем дворе.
+              Нажмите <strong>«Определить по GPS»</strong> для запроса разрешения или <strong>«По сети (IP)»</strong>, чтобы моментально определить ваш город без запроса доступа.
             </span>
           </div>
         )}
 
         {geoError && (
-          <div className="mt-3 pt-3 border-t border-rose-500/30 flex items-center gap-2 text-xs text-rose-700 dark:text-rose-300">
-            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-            <span>{geoError}</span>
+          <div className="mt-3 pt-3 border-t border-rose-500/30 space-y-2.5">
+            <div className="flex items-start gap-2 text-xs text-rose-700 dark:text-rose-300">
+              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <span className="font-semibold block">{geoError}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              <button
+                type="button"
+                onClick={() => handleRequestGeolocation(true)}
+                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs transition cursor-pointer flex items-center gap-1 shadow-2xs"
+              >
+                <Navigation className="w-3 h-3" />
+                <span>Повторить запрос GPS</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRequestIpOnly}
+                className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition cursor-pointer flex items-center gap-1 shadow-2xs"
+              >
+                <Globe className="w-3 h-3" />
+                <span>Определить город по сети (IP)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowPermissionHelp(!showPermissionHelp)}
+                className="px-2.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 text-xs font-semibold border border-stone-200 dark:border-stone-700 transition cursor-pointer flex items-center gap-1"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>{showPermissionHelp ? 'Скрыть инструкцию' : 'Как включить GPS в браузере?'}</span>
+              </button>
+            </div>
+
+            {/* Step-by-step help for enabling GPS */}
+            {showPermissionHelp && (
+              <div className="mt-2 p-3 bg-amber-50/90 dark:bg-stone-850/95 rounded-2xl border border-amber-300/70 dark:border-stone-700 text-xs text-stone-800 dark:text-stone-200 space-y-2 animate-in fade-in duration-150">
+                <p className="font-bold text-amber-950 dark:text-amber-300">
+                  📱 Если в телефоне геолокация включена, но сайт пишет «Запрещено»:
+                </p>
+                <ol className="list-decimal list-inside space-y-1 text-[11px] text-stone-700 dark:text-stone-300 pl-1">
+                  <li>
+                    <strong>В Chrome / Яндекс.Браузере / Safari:</strong> нажмите на значок замочка 🔒 или настроек слева от адреса сайта вверху экрана.
+                  </li>
+                  <li>
+                    Откройте пункт <strong>«Разрешения»</strong> (или «Настройки сайтов») → <strong>«Местоположение»</strong>.
+                  </li>
+                  <li>
+                    Выберите <strong>«Разрешить»</strong> (или переключите тумблер в активное положение).
+                  </li>
+                  <li>
+                    Вернитесь сюда и нажмите <strong>«Повторить запрос GPS»</strong>.
+                  </li>
+                </ol>
+                <p className="text-[11px] text-stone-500 dark:text-stone-400 italic">
+                  Либо просто нажмите кнопку <strong>«Определить город по сети (IP)»</strong> — она определит ваш город прямо сейчас без каких-либо настроек.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -733,6 +907,12 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
                             </span>
                           )}
 
+                          {item.hasCustomPrice && item.price && (
+                            <span className="text-[10px] text-emerald-800 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/70 px-1.5 py-0.2 rounded border border-emerald-300 dark:border-emerald-700">
+                              🏷️ {item.price} {item.currency || '₽'}
+                            </span>
+                          )}
+
                           {preferredBrand && (
                             <span className="text-[10px] text-amber-800 dark:text-amber-300 font-bold bg-amber-50 dark:bg-amber-950/70 px-1.5 py-0.2 rounded border border-amber-300 dark:border-amber-700">
                               ⭐ Чаще выбираете: {preferredBrand}
@@ -777,12 +957,31 @@ export const ShoppingView: React.FC<ShoppingViewProps> = ({
                     </div>
 
                     <div className="flex sm:flex-col items-baseline sm:items-end justify-between sm:justify-center shrink-0 font-mono">
-                      <span className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400">
-                        от ~{minPrice} ₽
-                      </span>
-                      <span className="text-[10px] text-stone-400 line-through">
-                        ~{item.estimatedPriceRub} ₽
-                      </span>
+                      {item.hasCustomPrice && item.price ? (
+                        <>
+                          <span className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                            {item.price} {item.currency || '₽'}
+                          </span>
+                          {item.unitPrice && item.quantity && item.quantity > 1 ? (
+                            <span className="text-[10px] text-stone-500 dark:text-stone-400">
+                              по {item.unitPrice} {item.currency || '₽'}/{item.unit || 'шт'}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-stone-400">
+                              (указана в заметке)
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                            от ~{minPrice} ₽
+                          </span>
+                          <span className="text-[10px] text-stone-400 line-through">
+                            ~{item.estimatedPriceRub} ₽
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 );

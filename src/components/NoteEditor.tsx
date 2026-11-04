@@ -39,6 +39,10 @@ import {
   Mic,
   MicOff,
   Square,
+  Camera,
+  Image as ImageIcon,
+  Type,
+  Loader2,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { ShareNoteModal } from './ShareNoteModal';
@@ -120,7 +124,157 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     enabled: true,
   });
 
+  // Font Size Presets (scaling font, line height, background lines & calculation rows together)
+  const FONT_PRESETS = [
+    { label: 'Мелкий', size: 13, lineHeight: 24 },
+    { label: 'Стандарт', size: 15, lineHeight: 28 },
+    { label: 'Крупный', size: 18, lineHeight: 34 },
+    { label: 'Большой', size: 22, lineHeight: 40 },
+    { label: 'Макси', size: 26, lineHeight: 48 },
+  ];
+
+  const [fontPresetIndex, setFontPresetIndex] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('notebook_font_idx');
+      if (saved !== null) {
+        const idx = Number(saved);
+        if (idx >= 0 && idx < 5) return idx;
+      }
+    } catch {}
+    return 1; // default 'Стандарт' 15px / 28px
+  });
+
+  const currentFont = FONT_PRESETS[fontPresetIndex] || FONT_PRESETS[1];
+
+  const handleFontSizeChange = (delta: number) => {
+    triggerHaptic(10);
+    const nextIdx = Math.max(0, Math.min(FONT_PRESETS.length - 1, fontPresetIndex + delta));
+    setFontPresetIndex(nextIdx);
+    try {
+      localStorage.setItem('notebook_font_idx', String(nextIdx));
+    } catch {}
+  };
+
+  // OCR Recognition State & File input refs
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [isOcrProcessing, setIsOcrProcessing] = useState<boolean>(false);
+  const [ocrStatusText, setOcrStatusText] = useState<string>('');
+  const [showOcrMenu, setShowOcrMenu] = useState<boolean>(false);
+
+  // Synchronized scrolling refs
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const calcColumnRef = useRef<HTMLDivElement>(null);
+  const isSyncingScroll = useRef<boolean>(false);
+
+  const handleTextareaScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (isSyncingScroll.current) return;
+    if (calcColumnRef.current) {
+      isSyncingScroll.current = true;
+      calcColumnRef.current.scrollTop = e.currentTarget.scrollTop;
+      requestAnimationFrame(() => {
+        isSyncingScroll.current = false;
+      });
+    }
+  };
+
+  const handlePreviewScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (isSyncingScroll.current) return;
+    if (calcColumnRef.current) {
+      isSyncingScroll.current = true;
+      calcColumnRef.current.scrollTop = e.currentTarget.scrollTop;
+      requestAnimationFrame(() => {
+        isSyncingScroll.current = false;
+      });
+    }
+  };
+
+  const handleCalcScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (isSyncingScroll.current) return;
+    isSyncingScroll.current = true;
+    const top = e.currentTarget.scrollTop;
+    if (textareaRef.current) {
+      textareaRef.current.scrollTop = top;
+    }
+    if (previewRef.current) {
+      previewRef.current.scrollTop = top;
+    }
+    requestAnimationFrame(() => {
+      isSyncingScroll.current = false;
+    });
+  };
+
+  // Image OCR Handler
+  const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    if (!file.type.startsWith('image/')) {
+      setCopiedText('Выберите файл изображения (JPG, PNG, WEBP)');
+      setTimeout(() => setCopiedText(null), 2500);
+      return;
+    }
+
+    triggerHaptic(15);
+    setIsOcrProcessing(true);
+    setOcrStatusText('Чтение изображения...');
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64Url = reader.result as string;
+        setOcrStatusText('AI распознает дела, покупки и расходы...');
+
+        const response = await fetch('/api/ocr-scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: base64Url,
+            mimeType: file.type || 'image/jpeg',
+          }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || 'Ошибка распознавания');
+        }
+
+        const data = await response.json();
+        const extracted = (data.text || '').trim();
+
+        if (extracted) {
+          triggerHaptic(25);
+          setContent((prev) => {
+            if (!prev.trim()) return extracted;
+            return prev.trimEnd() + '\n\n' + extracted;
+          });
+          setCopiedText('✓ Распознано и добавлено в тетрадь!');
+          setTimeout(() => setCopiedText(null), 3000);
+        } else {
+          setCopiedText('Текст на изображении не обнаружен');
+          setTimeout(() => setCopiedText(null), 3000);
+        }
+      } catch (err: any) {
+        console.error('OCR Error:', err);
+        setCopiedText(err.message || 'Ошибка распознавания');
+        setTimeout(() => setCopiedText(null), 3500);
+      } finally {
+        setIsOcrProcessing(false);
+        setOcrStatusText('');
+      }
+    };
+
+    reader.onerror = () => {
+      setIsOcrProcessing(false);
+      setOcrStatusText('');
+      setCopiedText('Ошибка чтения файла изображения');
+      setTimeout(() => setCopiedText(null), 2500);
+    };
+
+    reader.readAsDataURL(file);
+  };
 
   // Auto-analysis of math and shopping
   const mathSummary = useMemo(() => analyzeNote(content), [content]);
@@ -1088,10 +1242,114 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               title="Выделить сиреневым маркером"
             />
           </div>
+
+          {/* Font Size Stepper (Управление размером шрифта) */}
+          <div className="flex items-center gap-0.5 ml-1 pl-1.5 border-l border-stone-200 dark:border-stone-700">
+            <div className="flex items-center bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-lg px-1 py-0.5 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => handleFontSizeChange(-1)}
+                disabled={fontPresetIndex === 0}
+                className="px-1 py-0.5 rounded hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 disabled:opacity-30 cursor-pointer text-xs font-bold transition"
+                title="Уменьшить шрифт"
+              >
+                A-
+              </button>
+              <span
+                className="text-[11px] font-mono font-bold px-1.5 text-amber-700 dark:text-amber-400 select-none whitespace-nowrap cursor-default"
+                title={`Размер шрифта: ${currentFont.size}px (${currentFont.label})`}
+              >
+                {currentFont.size}px
+              </span>
+              <button
+                type="button"
+                onClick={() => handleFontSizeChange(1)}
+                disabled={fontPresetIndex === FONT_PRESETS.length - 1}
+                className="px-1 py-0.5 rounded hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 disabled:opacity-30 cursor-pointer text-xs font-bold transition"
+                title="Увеличить шрифт"
+              >
+                A+
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Right Tools: Voice Dictation & Mode Switcher */}
+        {/* Right Tools: OCR Scanner, Voice Dictation & Mode Switcher */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Hidden Image Inputs for OCR (Camera & File upload) */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleImageFileSelected}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleImageFileSelected}
+          />
+
+          {/* OCR Scan Button (Распознавание списков дел, трат и чеков со скриншотов и фото) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic();
+                setShowOcrMenu(!showOcrMenu);
+              }}
+              disabled={isOcrProcessing}
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-semibold transition active:scale-95 border cursor-pointer shrink-0 ${
+                isOcrProcessing
+                  ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 animate-pulse'
+                  : 'bg-white hover:bg-stone-100 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+              }`}
+              title="Распознать список дел, покупок или расходов с фото, скриншота или чека"
+            >
+              {isOcrProcessing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+              ) : (
+                <Camera className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              )}
+              <span className="hidden xs:inline">{isOcrProcessing ? 'Скан...' : 'Скан фото'}</span>
+            </button>
+
+            {showOcrMenu && (
+              <div className="absolute right-0 top-full mt-1.5 w-56 bg-white dark:bg-stone-900 border border-amber-900/15 dark:border-stone-700 rounded-2xl shadow-xl p-1.5 z-30 animate-in fade-in zoom-in-95">
+                <div className="text-[10px] uppercase font-bold text-stone-500 dark:text-stone-400 px-2 py-1 tracking-wider">
+                  Распознать с изображения
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic();
+                    setShowOcrMenu(false);
+                    cameraInputRef.current?.click();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-medium flex items-center gap-2 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200 cursor-pointer"
+                >
+                  <Camera className="w-4 h-4 text-amber-600" />
+                  <span>Сделать фото (камера)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic();
+                    setShowOcrMenu(false);
+                    fileInputRef.current?.click();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-medium flex items-center gap-2 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200 cursor-pointer"
+                >
+                  <ImageIcon className="w-4 h-4 text-emerald-600" />
+                  <span>Выбрать скриншот / файл</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Voice Dictation Button in Toolbar */}
           <button
             type="button"
@@ -1289,13 +1547,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
 
         {/* Notebook Sheet Body with selected Paper Style and Red Margins (at 56px) */}
-        <div className={`flex-1 flex overflow-hidden relative p-0 gap-1 ${paperClass} notebook-margin-red text-stone-900 dark:text-stone-100`}>
+        <div
+          style={{ '--notebook-line-height': `${currentFont.lineHeight}px` } as React.CSSProperties}
+          className={`flex-1 flex overflow-hidden relative p-0 gap-1 ${paperClass} notebook-margin-red text-stone-900 dark:text-stone-100`}
+        >
           {/* Main Textarea aligned on paper lines/grid strictly to the right of red margin (pl-16 = 64px) */}
           <div className="flex-1 h-full relative pl-16 pr-2 sm:pr-3 overflow-hidden">
             {isPreviewMode ? (
               <div
-                className="w-full h-full overflow-y-auto font-mono text-sm leading-[28px] selectable-text text-stone-900 dark:text-stone-100 pt-[14px]"
-                style={{ lineHeight: '28px', fontSize: '15px' }}
+                ref={previewRef}
+                onScroll={handlePreviewScroll}
+                className="w-full h-full overflow-y-auto font-mono selectable-text text-stone-900 dark:text-stone-100 pt-[14px]"
+                style={{
+                  lineHeight: `${currentFont.lineHeight}px`,
+                  fontSize: `${currentFont.size}px`,
+                }}
               >
                 {content.split('\n').map((line, idx) => {
                   let html = line
@@ -1317,7 +1583,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   return (
                     <div
                       key={idx}
-                      className="h-[28px] leading-[28px] truncate"
+                      style={{
+                        height: `${currentFont.lineHeight}px`,
+                        lineHeight: `${currentFont.lineHeight}px`,
+                      }}
+                      className="truncate"
                       dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }}
                     />
                   );
@@ -1326,6 +1596,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             ) : (
               <textarea
                 ref={textareaRef}
+                onScroll={handleTextareaScroll}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder={
@@ -1338,21 +1609,33 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     : `Заметки в тетрадке и быстрый расчет:\nАренда: 35000 руб\nСвет + вода: 2400 + 1350\nОбед: 450 * 2\nИтого к оплате:`
                 }
                 style={{
-                  lineHeight: '28px',
-                  fontSize: '15px',
+                  lineHeight: `${currentFont.lineHeight}px`,
+                  fontSize: `${currentFont.size}px`,
                   paddingTop: '14px',
                 }}
-                className="w-full h-full bg-transparent resize-none focus:outline-none font-mono text-sm selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-500/70 dark:placeholder-stone-400 font-medium overflow-y-auto"
+                className="w-full h-full bg-transparent resize-none focus:outline-none font-mono selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-500/70 dark:placeholder-stone-400 font-medium overflow-y-auto"
               />
             )}
           </div>
 
-          {/* Live Math Results Margin (aligned exactly to 28px lines) */}
+          {/* Live Math Results Margin (aligned exactly to note text lines with lockstep scroll) */}
           {mathSummary.totalCalculatedLines > 0 && (
-            <div className="w-28 sm:w-36 h-full overflow-y-auto pl-2 border-l border-amber-900/15 dark:border-stone-700/60 flex flex-col font-mono text-xs select-none shrink-0 pt-[14px]">
+            <div
+              ref={calcColumnRef}
+              onScroll={handleCalcScroll}
+              style={{ paddingTop: '14px' }}
+              className="w-28 sm:w-36 h-full overflow-y-auto pl-2 border-l border-amber-900/15 dark:border-stone-700/60 flex flex-col font-mono text-xs select-none shrink-0"
+            >
               <div className="space-y-0">
                 {mathSummary.lines.map((line, idx) => (
-                  <div key={idx} className="h-[28px] flex items-center justify-end leading-[28px]">
+                  <div
+                    key={idx}
+                    style={{
+                      height: `${currentFont.lineHeight}px`,
+                      lineHeight: `${currentFont.lineHeight}px`,
+                    }}
+                    className="flex items-center justify-end"
+                  >
                     {line.result !== null ? (
                       <button
                         onClick={() => handleCopyResult(line.result!, line.currency)}

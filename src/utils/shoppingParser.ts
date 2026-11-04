@@ -186,15 +186,40 @@ export const STORE_OPTIONS: StoreOption[] = [
 ];
 
 /**
- * Extracts shopping items from raw note text
+ * Normalizes currency string into standard symbol and RUB conversion rate
+ */
+export function normalizeCurrency(rawCur: string): { symbol: string; rateToRub: number } {
+  if (!rawCur) return { symbol: '₽', rateToRub: 1 };
+  const lower = rawCur.toLowerCase().trim();
+  if (lower === '$' || lower.includes('usd') || lower.includes('доллар')) {
+    return { symbol: '$', rateToRub: 95 };
+  }
+  if (lower === '€' || lower.includes('eur') || lower.includes('евро')) {
+    return { symbol: '€', rateToRub: 102 };
+  }
+  if (lower === '₸' || lower.includes('тенге') || lower.includes('kzt')) {
+    return { symbol: '₸', rateToRub: 0.2 };
+  }
+  if (lower.includes('byn') || lower.includes('бел')) {
+    return { symbol: 'BYN', rateToRub: 29 };
+  }
+  if (lower === '₴' || lower.includes('грн') || lower.includes('грив')) {
+    return { symbol: '₴', rateToRub: 2.3 };
+  }
+  return { symbol: '₽', rateToRub: 1 };
+}
+
+/**
+ * Extracts shopping items from raw note text with lineIndex and prices
  */
 export function extractShoppingItems(content: string): ShoppingItem[] {
   const lines = content.split('\n');
   const items: ShoppingItem[] = [];
   let currentId = 1;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const rawLine = lines[lineIdx];
+    const trimmed = rawLine.trim();
     if (!trimmed) continue;
 
     // Check if line is a checklist item e.g. "- [ ] молоко" or "- [x] сыр"
@@ -203,18 +228,17 @@ export function extractShoppingItems(content: string): ShoppingItem[] {
       const isCompleted = checkboxMatch[1].toLowerCase() === 'x';
       const itemText = checkboxMatch[2].trim();
       if (itemText) {
-        items.push(parseShoppingItemString(itemText, isCompleted, `item-${currentId++}`));
+        items.push(parseShoppingItemString(itemText, isCompleted, `item-${currentId++}`, lineIdx));
       }
       continue;
     }
 
-    // Check if line is a bullet item e.g. "* молоко 2л" or "- хлеб"
+    // Check if line is a bullet item e.g. "* молоко 2л" or "- хлеб 45 руб"
     const bulletMatch = trimmed.match(/^[-*•]\s+(.*)$/);
     if (bulletMatch) {
       const itemText = bulletMatch[1].trim();
-      // If it looks like a grocery/item rather than general text
       if (itemText && isLikelyShoppingText(itemText)) {
-        items.push(parseShoppingItemString(itemText, false, `item-${currentId++}`));
+        items.push(parseShoppingItemString(itemText, false, `item-${currentId++}`, lineIdx));
         continue;
       }
     }
@@ -226,7 +250,7 @@ export function extractShoppingItems(content: string): ShoppingItem[] {
       for (const raw of rawList) {
         const cleaned = raw.trim();
         if (cleaned) {
-          items.push(parseShoppingItemString(cleaned, false, `item-${currentId++}`));
+          items.push(parseShoppingItemString(cleaned, false, `item-${currentId++}`, lineIdx));
         }
       }
       continue;
@@ -234,7 +258,7 @@ export function extractShoppingItems(content: string): ShoppingItem[] {
 
     // If whole line matches known grocery patterns without bullets
     if (isLikelyShoppingText(trimmed)) {
-      items.push(parseShoppingItemString(trimmed, false, `item-${currentId++}`));
+      items.push(parseShoppingItemString(trimmed, false, `item-${currentId++}`, lineIdx));
     }
   }
 
@@ -242,20 +266,73 @@ export function extractShoppingItems(content: string): ShoppingItem[] {
 }
 
 /**
- * Helper to classify item string into parsed data
+ * Helper to classify item string into parsed data, extracting quantity, unit, price and currency
  */
-export function parseShoppingItemString(rawText: string, isCompleted: boolean, id: string): ShoppingItem {
-  // Extract quantity and unit: e.g. "Молоко 3.2% 2 л", "Яйца 10 шт", "Сыр 500 г", "Кофе 1 пачка"
+export function parseShoppingItemString(
+  rawText: string,
+  isCompleted: boolean,
+  id: string,
+  lineIndex?: number
+): ShoppingItem {
   let name = rawText;
   let quantity: number | undefined;
   let unit: string | undefined;
+  let recognizedPrice: number | undefined;
+  let recognizedUnitPrice: number | undefined;
+  let currency: string = '₽';
+  let hasCustomPrice = false;
 
-  const qtyMatch = rawText.match(/(\d+(?:[.,]\d+)?)\s*(кг|г|гр|литр(?:а|ов)?|л|мл|шт|штук|упаковк[аи]|пачк[аи]|бут|бан(?:ка|ки)?)\b/i);
+  // 1. Check for per-unit price: e.g. "по 150 руб", "по 200 ₽", "по 5.50 $"
+  const perUnitMatch = name.match(/\bпо\s+(\d+(?:[.,]\d+)?)\s*(?:₽|руб(?:лей|ля|ль)?\.?|р\.?\b|\$|€|тенге|евро|usd|eur)?/i);
+  if (perUnitMatch) {
+    const rawNum = perUnitMatch[1].replace(',', '.');
+    recognizedUnitPrice = parseFloat(rawNum);
+    hasCustomPrice = true;
+    // Check if currency was in this per-unit fragment
+    const curMatch = perUnitMatch[0].match(/(?:₽|руб(?:лей|ля|ль)?\.?|р\.?\b|\$|€|тенге|евро|usd|eur)/i);
+    if (curMatch) {
+      currency = normalizeCurrency(curMatch[0]).symbol;
+    }
+    name = name.replace(perUnitMatch[0], '').trim();
+  }
+
+  // 2. Check for explicit price and currency:
+  // e.g. "90 руб", "450 ₽", "25 $", "15 евро", "120р", "35000 руб", "цена 500", "за 200 р", "= 300 руб"
+  const priceRegex = /(?:(?::|—|-|=|цена|стоимость|стоит|стоят|за)\s*)?(\d+(?:[.,]\d+)?)\s*(₽|руб(?:лей|ля|ль)?\.?|р\.?\b|\$|€|тенге|евро|usd|eur)\b/i;
+  const priceMatch = name.match(priceRegex);
+
+  if (priceMatch && !priceMatch[0].includes('%')) {
+    const rawVal = priceMatch[1].replace(',', '.');
+    const parsedVal = parseFloat(rawVal);
+    // Don't treat percentages like 3.2% or 9% as prices
+    if (!isNaN(parsedVal) && parsedVal > 0) {
+      recognizedPrice = parsedVal;
+      hasCustomPrice = true;
+      currency = normalizeCurrency(priceMatch[2]).symbol;
+      name = name.replace(priceMatch[0], '').trim();
+    }
+  }
+
+  // 3. Extract quantity and unit: e.g. "Молоко 3.2% 2 л", "Яйца 10 шт", "Сыр 500 г", "Кофе 1 пачка"
+  const qtyMatch = name.match(/(\d+(?:[.,]\d+)?)\s*(кг|г|гр|литр(?:а|ов)?|л|мл|шт|штук|упаковк[аи]|пачк[аи]|бут|бан(?:ка|ки)?)\b/i);
   if (qtyMatch) {
     quantity = parseFloat(qtyMatch[1].replace(',', '.'));
     unit = qtyMatch[2];
-    name = rawText.replace(qtyMatch[0], '').trim();
+    name = name.replace(qtyMatch[0], '').trim();
   }
+
+  // If per-unit price was given and quantity exists, calculate total price
+  if (recognizedUnitPrice && quantity && quantity > 0) {
+    recognizedPrice = Math.round(recognizedUnitPrice * quantity * 100) / 100;
+  } else if (recognizedUnitPrice && !recognizedPrice) {
+    recognizedPrice = recognizedUnitPrice;
+  }
+
+  // Clean up trailing and leading punctuation (e.g. "Молоко - " -> "Молоко", "Сыр: " -> "Сыр")
+  name = name
+    .replace(/^[-*•:\s]+/, '')
+    .replace(/[-—:=,\s]+$/, '')
+    .trim();
 
   // Detect category
   let category: ShoppingCategory = 'other';
@@ -268,7 +345,14 @@ export function parseShoppingItemString(rawText: string, isCompleted: boolean, i
   }
 
   const basePrice = CATEGORY_AVG_PRICES[category] || 150;
-  const estimatedPriceRub = quantity && quantity > 0 && quantity < 20 ? Math.round(basePrice * quantity) : basePrice;
+  let estimatedPriceRub: number;
+
+  if (hasCustomPrice && recognizedPrice) {
+    const { rateToRub } = normalizeCurrency(currency);
+    estimatedPriceRub = Math.round(recognizedPrice * rateToRub);
+  } else {
+    estimatedPriceRub = quantity && quantity > 0 && quantity < 20 ? Math.round(basePrice * quantity) : basePrice;
+  }
 
   return {
     id,
@@ -279,6 +363,11 @@ export function parseShoppingItemString(rawText: string, isCompleted: boolean, i
     category,
     isCompleted,
     estimatedPriceRub,
+    price: recognizedPrice,
+    unitPrice: recognizedUnitPrice,
+    currency,
+    hasCustomPrice,
+    lineIndex,
   };
 }
 
@@ -293,6 +382,8 @@ export function isLikelyShoppingText(text: string): boolean {
   }
   // Check common unit patterns
   if (/\b\d+\s*(?:кг|г|гр|л|мл|шт|пачк)/i.test(text)) return true;
+  // Check common price & currency patterns e.g. "Хлеб 45 руб", "Сыр 350 ₽", "120р"
+  if (/\b\d+(?:[.,]\d+)?\s*(?:₽|руб|р\b|\$|€|тенге|евро)/i.test(text)) return true;
   return false;
 }
 

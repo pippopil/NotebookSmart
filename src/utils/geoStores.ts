@@ -1,4 +1,6 @@
 import { NearbyStore } from '../types';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 
 export interface LocationInfo {
   lat: number;
@@ -7,7 +9,9 @@ export interface LocationInfo {
   district?: string;
   street?: string;
   formattedAddress: string;
-  source: 'gps' | 'manual' | 'default';
+  source: 'gps' | 'ip' | 'manual' | 'default';
+  isFallbackFromGps?: boolean;
+  gpsBlockedReason?: string;
 }
 
 export const MAJOR_CITIES: Record<string, { lat: number; lng: number; name: string }> = {
@@ -17,8 +21,18 @@ export const MAJOR_CITIES: Record<string, { lat: number; lng: number; name: stri
   ekb: { lat: 56.8389, lng: 60.6057, name: 'Екатеринбург' },
   kzn: { lat: 55.7887, lng: 49.1221, name: 'Казань' },
   nn: { lat: 56.3269, lng: 44.0059, name: 'Нижний Новгород' },
+  chelyabinsk: { lat: 55.1644, lng: 61.4368, name: 'Челябинск' },
   samara: { lat: 53.1959, lng: 50.1002, name: 'Самара' },
+  ufa: { lat: 54.7388, lng: 55.9721, name: 'Уфа' },
+  rostov: { lat: 47.2357, lng: 39.7015, name: 'Ростов-на-Дону' },
   krasnodar: { lat: 45.0355, lng: 38.9753, name: 'Краснодар' },
+  omsk: { lat: 54.9885, lng: 73.3242, name: 'Омск' },
+  voronezh: { lat: 51.6615, lng: 39.2003, name: 'Воронеж' },
+  perm: { lat: 58.0105, lng: 56.2502, name: 'Пермь' },
+  volgograd: { lat: 48.7080, lng: 44.5133, name: 'Волгоград' },
+  krasnoyarsk: { lat: 56.0153, lng: 92.8932, name: 'Красноярск' },
+  sochi: { lat: 43.6028, lng: 39.7342, name: 'Сочи' },
+  tyumen: { lat: 57.1530, lng: 65.5343, name: 'Тюмень' },
 };
 
 export const POPULAR_CHAINS = [
@@ -42,7 +56,6 @@ export function formatDistance(meters: number): { distanceText: string; walkMinu
   } else {
     distanceText = `${(meters / 1000).toFixed(1)} км`;
   }
-  // Average walking speed ~ 5 km/h = 83 m/min
   const walkMinutes = Math.max(1, Math.round(meters / 80));
   return { distanceText, walkMinutes };
 }
@@ -93,9 +106,258 @@ export async function reverseGeocodeCoords(lat: number, lng: number): Promise<Lo
   return {
     lat,
     lng,
-    city: 'Москва',
-    formattedAddress: `Координаты: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+    city: 'Рядом с вами',
+    formattedAddress: `GPS координаты: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
     source: 'gps',
+  };
+}
+
+/**
+ * Fetches user location automatically by IP/Network.
+ * Highly reliable: doesn't require any browser permission prompts.
+ */
+export async function fetchIpLocation(): Promise<LocationInfo | null> {
+  // Strategy 1: Server-side proxy /api/geoip
+  try {
+    const controller = new AbortController();
+    const t1 = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch('/api/geoip', { signal: controller.signal });
+    clearTimeout(t1);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.lat && data.lng) {
+        return {
+          lat: data.lat,
+          lng: data.lng,
+          city: data.city || 'Москва',
+          formattedAddress: data.region
+            ? `${data.city || 'Город'}, ${data.region} (по сети)`
+            : `${data.city || 'Город'} (по сети)`,
+          source: 'ip',
+        };
+      }
+    }
+  } catch {
+    // Try strategy 2
+  }
+
+  // Strategy 2: Server-side proxy /api/ip-location
+  try {
+    const controller = new AbortController();
+    const t2 = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch('/api/ip-location', { signal: controller.signal });
+    clearTimeout(t2);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.lat && data.lng) {
+        return {
+          lat: data.lat,
+          lng: data.lng,
+          city: data.city || 'Москва',
+          formattedAddress: data.region
+            ? `${data.city || 'Город'}, ${data.region} (по сети)`
+            : `${data.city || 'Город'} (по сети)`,
+          source: 'ip',
+        };
+      }
+    }
+  } catch {
+    // Try strategy 3
+  }
+
+  // Strategy 3: Direct browser client call to ipwho.is (CORS enabled, fast, no API key needed)
+  try {
+    const controller = new AbortController();
+    const t3 = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch('https://ipwho.is/?lang=ru', { signal: controller.signal });
+    clearTimeout(t3);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success !== false && data.latitude && data.longitude) {
+        return {
+          lat: data.latitude,
+          lng: data.longitude,
+          city: data.city || 'Москва',
+          formattedAddress: data.region
+            ? `${data.city || 'Город'}, ${data.region} (по сети)`
+            : `${data.city || 'Город'} (по сети)`,
+          source: 'ip',
+        };
+      }
+    }
+  } catch {
+    // Final fallback
+  }
+
+  return null;
+}
+
+/**
+ * Native Capacitor Geolocation runner with OS permission prompt
+ */
+async function getNativeCapacitorLocation(): Promise<{ lat: number; lng: number } | null> {
+  if (typeof window === 'undefined') return null;
+  if (!Capacitor.isNativePlatform()) return null;
+
+  try {
+    // Check and request runtime permissions in Android/iOS native app
+    const permStatus = await Geolocation.checkPermissions();
+    if (permStatus.location !== 'granted') {
+      const req = await Geolocation.requestPermissions();
+      if (req.location !== 'granted') {
+        return null;
+      }
+    }
+
+    const pos = await Geolocation.getCurrentPosition({
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 60000,
+    });
+
+    if (pos && pos.coords) {
+      return {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+      };
+    }
+  } catch {
+    // Native GPS failed or timed out
+  }
+
+  return null;
+}
+
+/**
+ * Browser Geolocation helper with timeout Promise
+ */
+function getBrowserPosition(options: PositionOptions): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      reject(new Error('Geolocation not supported in navigator'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+  });
+}
+
+/**
+ * Resilient multi-tier geolocation resolver:
+ * 1. Native Capacitor GPS (triggers Android permission prompt)
+ * 2. Browser High-Accuracy GPS (precise satellite lock)
+ * 3. Browser Low-Accuracy Network/Wi-Fi (fast indoor positioning)
+ * 4. Automatic Network/IP Geolocation (zero permission needed, never fails)
+ */
+export async function determineBestUserLocation(): Promise<{
+  location: LocationInfo;
+  isGpsDenied: boolean;
+  gpsErrorMessage?: string;
+}> {
+  // Step 1: Check native Capacitor platform
+  if (Capacitor.isNativePlatform()) {
+    const nativeCoords = await getNativeCapacitorLocation();
+    if (nativeCoords) {
+      const rev = await reverseGeocodeCoords(nativeCoords.lat, nativeCoords.lng);
+      return {
+        location: {
+          ...rev,
+          source: 'gps',
+        },
+        isGpsDenied: false,
+      };
+    }
+  }
+
+  // Step 2: Try browser high accuracy GPS
+  let gpsDenied = false;
+  let gpsErrorMsg: string | undefined;
+
+  if (typeof navigator !== 'undefined' && navigator.geolocation) {
+    try {
+      const pos = await getBrowserPosition({
+        enableHighAccuracy: true,
+        timeout: 6000,
+        maximumAge: 120000,
+      });
+
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const rev = await reverseGeocodeCoords(lat, lng);
+      return {
+        location: {
+          ...rev,
+          source: 'gps',
+        },
+        isGpsDenied: false,
+      };
+    } catch (err: any) {
+      if (err && err.code === 1) {
+        // PERMISSION_DENIED
+        gpsDenied = true;
+        gpsErrorMsg = 'Доступ к GPS заблокирован в браузере или настройках телефона';
+      } else {
+        // Step 3: Try low accuracy (Wi-Fi and cell tower triangulation)
+        try {
+          const pos = await getBrowserPosition({
+            enableHighAccuracy: false,
+            timeout: 5000,
+            maximumAge: 300000,
+          });
+
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const rev = await reverseGeocodeCoords(lat, lng);
+          return {
+            location: {
+              ...rev,
+              source: 'gps',
+            },
+            isGpsDenied: false,
+          };
+        } catch (err2: any) {
+          if (err2 && err2.code === 1) {
+            gpsDenied = true;
+            gpsErrorMsg = 'Доступ к GPS заблокирован в браузере';
+          } else {
+            gpsErrorMsg = 'GPS сигнал слабый или недоступен в помещении';
+          }
+        }
+      }
+    }
+  } else {
+    gpsErrorMsg = 'Браузер не поддерживает определение GPS координат';
+  }
+
+  // Step 4: Fallback to automatic IP-based Geolocation
+  const ipLoc = await fetchIpLocation();
+  if (ipLoc) {
+    return {
+      location: {
+        ...ipLoc,
+        isFallbackFromGps: true,
+        gpsBlockedReason: gpsErrorMsg,
+      },
+      isGpsDenied: gpsDenied,
+      gpsErrorMessage: gpsErrorMsg,
+    };
+  }
+
+  // Step 5: Default fallback to Moscow
+  return {
+    location: {
+      lat: 55.7558,
+      lng: 37.6173,
+      city: 'Москва',
+      formattedAddress: 'Москва (по умолчанию)',
+      source: 'default',
+      isFallbackFromGps: true,
+      gpsBlockedReason: gpsErrorMsg,
+    },
+    isGpsDenied: gpsDenied,
+    gpsErrorMessage: gpsErrorMsg,
   };
 }
 

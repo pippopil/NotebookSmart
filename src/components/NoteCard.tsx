@@ -204,33 +204,33 @@ export const NoteCard: React.FC<NoteCardProps> = ({
         ) : (
           <>
             {/* High-contrast handwritten text snippet */}
-            <p className="text-xs text-stone-800 dark:text-stone-200 line-clamp-2 leading-relaxed mb-3 font-mono font-medium">
+            <p className="text-xs text-stone-900 dark:text-stone-100 line-clamp-2 leading-relaxed mb-3 font-mono font-semibold">
               {note.content || 'Пустая страница в тетрадке...'}
             </p>
 
             {/* Financial Split: Income, Expenses, Net Balance */}
             {hasCashflow ? (
-              <div className="bg-amber-50/70 dark:bg-stone-950/80 rounded-xl p-2.5 border border-amber-900/15 dark:border-stone-800 mb-3 space-y-1.5 font-mono text-xs">
-                <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-400 font-semibold">
+              <div className="bg-amber-500/10 dark:bg-stone-950/80 rounded-xl p-2.5 border border-amber-900/20 dark:border-stone-800 mb-3 space-y-1.5 font-mono text-xs">
+                <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-400 font-bold">
                   <span className="flex items-center gap-1 text-[11px]">
                     <TrendingUp className="w-3.5 h-3.5" />
                     <span>Прибыль (доходы):</span>
                   </span>
                   <span>+{formatMoney(note.cachedIncome!, note.currency)}</span>
                 </div>
-                <div className="flex items-center justify-between text-rose-800 dark:text-rose-400 font-semibold">
+                <div className="flex items-center justify-between text-rose-800 dark:text-rose-400 font-bold">
                   <span className="flex items-center gap-1 text-[11px]">
                     <TrendingDown className="w-3.5 h-3.5" />
                     <span>Расходы (траты):</span>
                   </span>
                   <span>−{formatMoney(note.cachedExpenses!, note.currency)}</span>
                 </div>
-                <div className="pt-1 border-t border-amber-900/15 dark:border-stone-800 flex items-center justify-between font-bold text-stone-900 dark:text-white">
+                <div className="pt-1 border-t border-amber-900/20 dark:border-stone-800 flex items-center justify-between font-extrabold text-stone-950 dark:text-white">
                   <span className="flex items-center gap-1 text-[11px]">
                     <Wallet className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                     <span>Остаток в итоге:</span>
                   </span>
-                  <span className={(note.cachedNetBalance || 0) >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                  <span className={(note.cachedNetBalance || 0) >= 0 ? 'text-emerald-700 dark:text-emerald-400 font-extrabold' : 'text-rose-700 dark:text-rose-400 font-extrabold'}>
                     {formatMoney(note.cachedNetBalance || 0, note.currency)}
                   </span>
                 </div>

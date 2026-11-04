@@ -13,6 +13,7 @@ import {
   saveArchivedBudgets,
   loadArchivedShopping,
   saveArchivedShopping,
+  restoreNotesFromIndexedDBIfEmpty,
 } from './services/storage';
 import {
   loadSecurityConfig,
@@ -158,6 +159,20 @@ export default function App() {
     syncMethod: 'local',
     roomCode,
   });
+
+  // Auto-restore user notes from IndexedDB if localStorage was cleared during app update
+  useEffect(() => {
+    restoreNotesFromIndexedDBIfEmpty().then((recovered) => {
+      if (recovered && recovered.length > 0) {
+        setNotes((prevNotes) => {
+          if (prevNotes.length === 0) {
+            return recovered.map(enrichNoteMetadata);
+          }
+          return prevNotes;
+        });
+      }
+    });
+  }, []);
 
   // Save notes locally whenever they change
   useEffect(() => {

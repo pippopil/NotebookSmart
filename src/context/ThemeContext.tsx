@@ -27,17 +27,28 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     const root = document.documentElement;
+    const body = document.body;
     if (theme === 'dark') {
       root.classList.add('dark');
       root.classList.remove('light');
       root.setAttribute('data-theme', 'dark');
+      root.style.colorScheme = 'dark';
+      if (body) {
+        body.classList.add('dark');
+        body.classList.remove('light');
+      }
       // Update theme-color meta for mobile browser chrome
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute('content', '#1c1917');
+      if (meta) meta.setAttribute('content', '#141210');
     } else {
       root.classList.remove('dark');
       root.classList.add('light');
       root.setAttribute('data-theme', 'light');
+      root.style.colorScheme = 'light';
+      if (body) {
+        body.classList.remove('dark');
+        body.classList.add('light');
+      }
       const meta = document.querySelector('meta[name="theme-color"]');
       if (meta) meta.setAttribute('content', '#faf7f2');
     }

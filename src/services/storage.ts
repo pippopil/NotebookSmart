@@ -2,8 +2,21 @@ import { Note, ArchivedBudgetMonth, ArchivedShoppingTrip } from '../types';
 import { analyzeNote } from '../utils/mathEngine';
 import { extractShoppingItems } from '../utils/shoppingParser';
 
-const STORAGE_KEY = 'notebook_smart_notes_v1';
-const _SETTINGS_KEY = 'notebook_smart_settings_v1';
+// Primary Storage & Protection Keys
+export const STORAGE_KEY = 'notebook_smart_notes_v1';
+export const USER_INITIALIZED_KEY = 'notebook_smart_user_initialized';
+export const SAFE_BACKUP_KEY = 'notebook_smart_notes_safe_backup';
+export const LAST_VERSION_KEY = 'notebook_smart_installed_version';
+export const ARCHIVED_BUDGETS_KEY = 'notebook_smart_archived_budgets_v1';
+export const ARCHIVED_SHOPPING_KEY = 'notebook_smart_archived_shopping_v1';
+
+const LEGACY_STORAGE_KEYS = [
+  'notebook_smart_notes_v1',
+  'notebook_smart_notes',
+  'notebook_notes',
+  'smart_notes_data',
+  'notebook_smart_notes_safe_backup',
+];
 
 export const INITIAL_NOTES: Note[] = [
   {
@@ -109,6 +122,107 @@ export const INITIAL_NOTES: Note[] = [
   },
 ];
 
+// ================= PERMANENT STORAGE & INDEXEDDB BACKUP =================
+const DB_NAME = 'NotebookSmartDB';
+const DB_VERSION = 1;
+const STORE_NOTES = 'notes';
+
+function openIndexedDB(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || !window.indexedDB) {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE_NOTES)) {
+          db.createObjectStore(STORE_NOTES, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export async function saveNotesToIndexedDB(notes: Note[]): Promise<void> {
+  try {
+    const db = await openIndexedDB();
+    if (!db) return;
+    const tx = db.transaction(STORE_NOTES, 'readwrite');
+    const store = tx.objectStore(STORE_NOTES);
+    store.clear();
+    for (const note of notes) {
+      store.put(note);
+    }
+  } catch (e) {
+    console.warn('IndexedDB save notice:', e);
+  }
+}
+
+export async function loadNotesFromIndexedDB(): Promise<Note[] | null> {
+  try {
+    const db = await openIndexedDB();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NOTES, 'readonly');
+      const store = tx.objectStore(STORE_NOTES);
+      const req = store.getAll();
+      req.onsuccess = () => {
+        const result = req.result;
+        if (Array.isArray(result) && result.length > 0) {
+          resolve(result);
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Recovers user data from IndexedDB if localStorage was cleared during app update
+ */
+export async function restoreNotesFromIndexedDBIfEmpty(): Promise<Note[] | null> {
+  try {
+    const isUserInitialized = localStorage.getItem(USER_INITIALIZED_KEY) === 'true';
+    const localRaw = localStorage.getItem(STORAGE_KEY);
+    
+    // Only attempt recovery if local is empty or null
+    if (!localRaw || localRaw === '[]') {
+      const idbNotes = await loadNotesFromIndexedDB();
+      if (idbNotes && idbNotes.length > 0) {
+        console.log(`[NotebookSmart] Restored ${idbNotes.length} user notes from IndexedDB after update`);
+        saveNotes(idbNotes);
+        return idbNotes;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Requests permanent storage permission so Android WebView / Mobile Safari
+ * does NOT evict user notes during app updates or storage pressure.
+ */
+export function requestPersistentStorage(): void {
+  if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().then((persisted) => {
+      if (persisted) {
+        console.log('[NotebookSmart] Persistent storage active: notes will never be evicted.');
+      }
+    }).catch(() => {});
+  }
+}
+
 export function enrichNoteMetadata(note: Note): Note {
   const math = analyzeNote(note.content);
   const shopping = extractShoppingItems(note.content);
@@ -126,33 +240,113 @@ export function enrichNoteMetadata(note: Note): Note {
   };
 }
 
+/**
+ * Loads notes with multi-tiered protection:
+ * 1. Primary localStorage key
+ * 2. Legacy storage keys migration
+ * 3. Safe permanent backup key
+ * 4. User initialization guard (NEVER injects demo notes after first install)
+ */
 export function loadNotes(): Note[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    requestPersistentStorage();
+
+    // 1. Try to load from primary storage key
+    let raw = localStorage.getItem(STORAGE_KEY);
+
+    // 2. If primary storage is empty, check legacy keys
     if (!raw) {
-      const enriched = INITIAL_NOTES.map(enrichNoteMetadata);
-      saveNotes(enriched);
-      return enriched;
+      for (const legacyKey of LEGACY_STORAGE_KEYS) {
+        const legacyData = localStorage.getItem(legacyKey);
+        if (legacyData && legacyData !== '[]') {
+          raw = legacyData;
+          localStorage.setItem(STORAGE_KEY, legacyData);
+          break;
+        }
+      }
     }
-    const parsed: Note[] = JSON.parse(raw);
-    return parsed.map(enrichNoteMetadata);
+
+    // 3. Check if user already installed and used the app previously
+    const isUserInitialized = localStorage.getItem(USER_INITIALIZED_KEY) === 'true';
+
+    if (raw) {
+      try {
+        const parsed: Note[] = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          // If the user already used the app and emptied their notes, respect their choice
+          if (parsed.length === 0 && isUserInitialized) {
+            return [];
+          }
+
+          if (parsed.length > 0) {
+            // Keep safe backup updated
+            localStorage.setItem(SAFE_BACKUP_KEY, raw);
+            localStorage.setItem(USER_INITIALIZED_KEY, 'true');
+            saveNotesToIndexedDB(parsed);
+            return parsed.map(enrichNoteMetadata);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed parsing notes JSON, checking safe backup recovery', err);
+      }
+    }
+
+    // 4. Try recovery from safe backup
+    const backupRaw = localStorage.getItem(SAFE_BACKUP_KEY);
+    if (backupRaw) {
+      try {
+        const backupParsed: Note[] = JSON.parse(backupRaw);
+        if (Array.isArray(backupParsed) && backupParsed.length > 0) {
+          console.log(`[NotebookSmart] Recovered ${backupParsed.length} notes from safe backup.`);
+          saveNotes(backupParsed);
+          return backupParsed.map(enrichNoteMetadata);
+        }
+      } catch {}
+    }
+
+    // 5. Existing user protection: If user has used the app previously, DO NOT replace with demo notes!
+    if (isUserInitialized) {
+      console.log('[NotebookSmart] Existing user detected. Retaining user data without demo notes.');
+      return [];
+    }
+
+    // 6. First-time brand new install ONLY:
+    console.log('[NotebookSmart] First-time install: initializing introductory sample notes.');
+    const enriched = INITIAL_NOTES.map(enrichNoteMetadata);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(enriched));
+    localStorage.setItem(SAFE_BACKUP_KEY, JSON.stringify(enriched));
+    localStorage.setItem(USER_INITIALIZED_KEY, 'true');
+    saveNotesToIndexedDB(enriched);
+    return enriched;
   } catch (e) {
     console.error('Failed to load notes from localStorage', e);
+    // If user was initialized, never inject demo notes on failure
+    if (localStorage.getItem(USER_INITIALIZED_KEY) === 'true') {
+      return [];
+    }
     return INITIAL_NOTES.map(enrichNoteMetadata);
   }
 }
 
 export function saveNotes(notes: Note[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+    const serialized = JSON.stringify(notes);
+    localStorage.setItem(STORAGE_KEY, serialized);
+
+    // If user has notes, maintain the safe backup
+    if (notes.length > 0) {
+      localStorage.setItem(SAFE_BACKUP_KEY, serialized);
+    }
+    localStorage.setItem(USER_INITIALIZED_KEY, 'true');
+
+    // Async persistent IndexedDB write
+    saveNotesToIndexedDB(notes);
   } catch (e) {
     console.error('Failed to save notes to localStorage', e);
   }
 }
 
 // ================= ARCHIVE OF PREVIOUS MONTHS & COMPLETED SHOPPING =================
-const ARCHIVED_BUDGETS_KEY = 'notebook_smart_archived_budgets_v1';
-const ARCHIVED_SHOPPING_KEY = 'notebook_smart_archived_shopping_v1';
 
 export const INITIAL_ARCHIVED_BUDGETS: ArchivedBudgetMonth[] = [
   {
@@ -246,14 +440,19 @@ export const INITIAL_ARCHIVED_SHOPPING: ArchivedShoppingTrip[] = [
 export function loadArchivedBudgets(): ArchivedBudgetMonth[] {
   try {
     const raw = localStorage.getItem(ARCHIVED_BUDGETS_KEY);
+    const isUserInitialized = localStorage.getItem(USER_INITIALIZED_KEY) === 'true';
+
     if (!raw) {
+      if (isUserInitialized) {
+        return [];
+      }
       saveArchivedBudgets(INITIAL_ARCHIVED_BUDGETS);
       return INITIAL_ARCHIVED_BUDGETS;
     }
     return JSON.parse(raw);
   } catch (e) {
     console.error('Failed to load archived budgets', e);
-    return INITIAL_ARCHIVED_BUDGETS;
+    return [];
   }
 }
 
@@ -268,14 +467,19 @@ export function saveArchivedBudgets(budgets: ArchivedBudgetMonth[]): void {
 export function loadArchivedShopping(): ArchivedShoppingTrip[] {
   try {
     const raw = localStorage.getItem(ARCHIVED_SHOPPING_KEY);
+    const isUserInitialized = localStorage.getItem(USER_INITIALIZED_KEY) === 'true';
+
     if (!raw) {
+      if (isUserInitialized) {
+        return [];
+      }
       saveArchivedShopping(INITIAL_ARCHIVED_SHOPPING);
       return INITIAL_ARCHIVED_SHOPPING;
     }
     return JSON.parse(raw);
   } catch (e) {
     console.error('Failed to load archived shopping', e);
-    return INITIAL_ARCHIVED_SHOPPING;
+    return [];
   }
 }
 

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Note, ArchivedBudgetMonth, ArchivedShoppingTrip } from '../types';
 import { formatMoney, analyzeNote } from '../utils/mathEngine';
 import { extractShoppingItems } from '../utils/shoppingParser';
+import { MonthlyExpenseChart } from './MonthlyExpenseChart';
 import {
   Archive,
   Calendar,
@@ -311,6 +312,14 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
       {/* SUBTAB 1: ARCHIVED BUDGET MONTHS */}
       {activeSubTab === 'budgets' && (
         <div className="space-y-4">
+          {/* Graphical visualization of monthly expenses using recharts */}
+          <MonthlyExpenseChart
+            archivedBudgets={archivedBudgets}
+            activeNotes={notes}
+            selectedMonthId={expandedBudgetId}
+            onSelectMonth={(id) => setExpandedBudgetId(id)}
+          />
+
           {/* All-time archive statistics card */}
           {archivedBudgets.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -379,7 +388,11 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
               return (
                 <div
                   key={b.id}
-                  className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-4 sm:p-5 shadow-xs transition hover:border-amber-500/40"
+                  className={`bg-white dark:bg-stone-900 border rounded-3xl p-4 sm:p-5 shadow-xs transition ${
+                    isExpanded
+                      ? 'border-amber-500 ring-2 ring-amber-500/25 shadow-md'
+                      : 'border-amber-900/10 dark:border-stone-800 hover:border-amber-500/40'
+                  }`}
                 >
                   {/* Top line: Month name, date closed, actions */}
                   <div className="flex items-center justify-between gap-3 mb-3 pb-3 border-b border-amber-900/10 dark:border-stone-800">
