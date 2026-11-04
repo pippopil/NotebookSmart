@@ -61,6 +61,7 @@ import {
   POPULAR_TAGS,
   normalizeTag,
 } from '../services/aiTagging';
+import { nativeHaptic } from '../services/nativeBridge';
 
 interface NoteEditorProps {
   note: Note;
@@ -320,11 +321,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     reminderDateTime,
   ]);
 
-  // Haptic feedback
+  // Haptic feedback (Native Android Vibrator with browser fallback)
   const triggerHaptic = (ms: number = 12) => {
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate(ms);
-    }
+    nativeHaptic(ms >= 30 ? 'heavy' : ms >= 20 ? 'medium' : 'light');
   };
 
   // Add a tag to current note

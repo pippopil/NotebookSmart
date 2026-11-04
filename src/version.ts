@@ -11,15 +11,41 @@ export interface ReleaseNote {
   }[];
 }
 
-export const APP_VERSION = '1.9.4';
-export const APP_BUILD = 194;
+export const APP_VERSION = '1.9.5';
+export const APP_BUILD = 195;
 export const APP_RELEASE_DATE = '4 ноября 2026';
 
 export const RELEASES_HISTORY: ReleaseNote[] = [
   {
-    version: '1.9.4',
+    version: '1.9.5',
     releaseDate: '4 ноября 2026',
     isLatest: true,
+    title: 'Архитектура «Усиленный гибрид»: нативный виджет рабочего стола, AlarmManager и системный виброотклик',
+    highlights: [
+      'Архитектура «Усиленный гибрид» (Enhanced Hybrid): объединение сверхбыстрого UI на React/TypeScript с прямым нативным Java-мостом Android',
+      'Нативный виджет рабочего стола (RemoteViews AppWidget): живой список покупок и финансовые итоги прямо на экране телефона без запуска приложения',
+      'Точные системные напоминания (Android AlarmManager): setExactAndAllowWhileIdle и BroadcastReceiver гарантируют срабатывание пуша даже при закрытом приложении и в режиме Doze',
+      'Аппаратная виброотдача (Hardware Vibrator / VibrationEffect): глубокая тактильная градация (light, medium, heavy, success) при нажатиях и отметках',
+      'Двусторонний нативный мост (Android JavascriptInterface): автоматическое обновление виджета при любых изменениях в тетрадке',
+      'Интерактивная карточка статуса архитектуры в разделе «О приложении» с кнопкой тестирования тактильного отклика',
+    ],
+    categories: [
+      {
+        name: '⚡ Усиленный гибрид (Enhanced Hybrid)',
+        icon: 'Cpu',
+        items: [
+          'Прямой интерфейс window.AndroidNative связывает веб-оболочку с нативными API Android без сторонних прослоек',
+          'Виджет рабочего стола 3x2 / 4x2 с автоматическим обновлением через SharedPreferences',
+          'Точный фоновый будильник AlarmManager с поддержкой энергосберегающих режимов Android',
+          'Аппаратный тактильный отклик через системный сервис Vibrator',
+        ],
+      },
+    ],
+  },
+  {
+    version: '1.9.4',
+    releaseDate: '4 ноября 2026',
+    isLatest: false,
     title: 'Графическая визуализация (гистограмма Recharts) месячных расходов в архиве',
     highlights: [
       'Интерактивная гистограмма Recharts в разделе «Архив»: наглядное отслеживание динамики расходов по месяцам',

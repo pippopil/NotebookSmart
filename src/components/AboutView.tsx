@@ -31,7 +31,17 @@ import {
   Layers,
   Heart,
   Mic,
+  Smartphone,
+  Zap,
+  BellRing,
+  Activity,
+  Cpu,
 } from 'lucide-react';
+import {
+  getNativeAppInfo,
+  isAndroidNativeApp,
+  nativeHaptic,
+} from '../services/nativeBridge';
 
 interface AboutViewProps {
   notes: Note[];
@@ -49,6 +59,14 @@ export const AboutView: React.FC<AboutViewProps> = ({
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [hapticTested, setHapticTested] = useState(false);
+  const appInfo = getNativeAppInfo();
+
+  const handleTestHaptic = () => {
+    nativeHaptic('success');
+    setHapticTested(true);
+    setTimeout(() => setHapticTested(false), 2000);
+  };
 
   const handleUpdate = async () => {
     setIsUpdating(true);
@@ -180,6 +198,92 @@ export const AboutView: React.FC<AboutViewProps> = ({
               {updateMessage}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ENHANCED HYBRID ARCHITECTURE CARD */}
+      <div className="bg-[#fffdf9] dark:bg-stone-900 rounded-3xl border border-amber-900/15 dark:border-stone-800 p-5 sm:p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white flex items-center gap-2">
+            <Cpu className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            <span>Архитектура: Усиленный гибрид (Enhanced Hybrid)</span>
+          </h2>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>{appInfo.isNative ? 'Native Bridge Активен' : 'Hybrid Web/PWA Ready'}</span>
+          </span>
+        </div>
+
+        <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-300 leading-relaxed">
+          В версии 1.9.5 реализован <strong>«Усиленный гибрид»</strong>: мощное ядро React/TypeScript объединено с нативным мостом Android (Java/Kotlin Bridge). Это даёт идеальный баланс: мгновенные кроссплатформенные обновления и полный доступ к аппаратным функциям смартфона.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+          <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <Smartphone className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Нативный виджет экрана (AppWidget)
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                RemoteViews виджет прямо на рабочем столе телефона с живым списком покупок и суммами счетов.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+              <BellRing className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Точные напоминания (AlarmManager)
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                setExactAndAllowWhileIdle + BroadcastReceiver будят телефон и присылают пуш даже при закрытом приложении.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <Zap className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Аппаратный виброотклик (Haptic)
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Прямое управление системным вибратором смартфона (VibrationEffect) для приятного тактильного ощущения.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <Activity className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Локальный OCR + Gemini 3.8 Flash
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Офлайн распознавание фото и чеков с умной авто-классификацией тегов прямо на устройстве.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-2 flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleTestHaptic}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-950 dark:text-amber-300 border border-amber-400/40 font-bold text-xs sm:text-sm transition active:scale-95 cursor-pointer"
+          >
+            <Zap className={`w-4 h-4 ${hapticTested ? 'text-amber-600 fill-amber-500 animate-bounce' : 'text-amber-600'}`} />
+            <span>{hapticTested ? '✓ Тактильный отклик сработал!' : 'Тест тактильного отклика (Haptics)'}</span>
+          </button>
         </div>
       </div>
 

@@ -32,6 +32,12 @@ import {
   InAppAlert,
 } from './services/notifications';
 import { extractSmartTagsLocally } from './services/aiTagging';
+import {
+  syncWidgetFromNotes,
+  scheduleNativeAlarm,
+  cancelNativeAlarm,
+  nativeHaptic,
+} from './services/nativeBridge';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useSwipeBack } from './hooks/useSwipeBack';
 import { Header } from './components/Header';
@@ -174,9 +180,10 @@ export default function App() {
     });
   }, []);
 
-  // Save notes locally whenever they change
+  // Save notes locally whenever they change & sync with Android Home Screen Widget
   useEffect(() => {
     saveNotes(notes);
+    syncWidgetFromNotes(notes);
   }, [notes]);
 
   // Save archived budgets locally
@@ -367,11 +374,9 @@ export default function App() {
     });
   }, [notes, activeCategoryFilter, searchQuery]);
 
-  // Haptic feedback
-  const triggerHaptic = () => {
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate(12);
-    }
+  // Haptic feedback (Native Android Vibrator with browser fallback)
+  const triggerHaptic = (style: 'light' | 'medium' | 'heavy' = 'light') => {
+    nativeHaptic(style);
   };
 
   // Handlers
@@ -457,11 +462,38 @@ export default function App() {
     const enriched = enrichNoteMetadata(updated);
     setNotes((prev) => prev.map((n) => (n.id === enriched.id ? enriched : n)));
     syncNoteToRemote(roomCode, enriched);
+
+    // Sync native exact AlarmManager for reminders
+    if (enriched.reminderEnabled && !enriched.reminderTriggered) {
+      let triggerTime = 0;
+      if (enriched.reminderDateTime) {
+        triggerTime = new Date(enriched.reminderDateTime).getTime();
+      } else if (enriched.category === 'event' && enriched.eventDate && enriched.eventTime) {
+        triggerTime = new Date(`${enriched.eventDate}T${enriched.eventTime}`).getTime();
+      }
+      if (triggerTime > Date.now()) {
+        const title =
+          enriched.category === 'shopping'
+            ? `🛒 Напоминание: ${enriched.title || 'Список покупок'}`
+            : `📅 Событие: ${enriched.title || 'Событие в тетради'}`;
+        const body =
+          enriched.content.trim().slice(0, 100) ||
+          (enriched.category === 'shopping'
+            ? 'Пора проверить список покупок в NotebookSmart'
+            : 'Время запланированного мероприятия');
+        scheduleNativeAlarm(enriched.id, title, body, triggerTime, enriched.category);
+      } else {
+        cancelNativeAlarm(enriched.id);
+      }
+    } else {
+      cancelNativeAlarm(enriched.id);
+    }
   };
 
   const handleDeleteNote = (id: string) => {
     setNotes((prev) => prev.filter((n) => n.id !== id));
     deleteNoteFromRemote(roomCode, id);
+    cancelNativeAlarm(id);
     if (selectedNote?.id === id) {
       setSelectedNote(null);
     }
