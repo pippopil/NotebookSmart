@@ -37,6 +37,9 @@ import {
   scheduleNativeAlarm,
   cancelNativeAlarm,
   nativeHaptic,
+  getPendingNativeSharedContent,
+  getPendingNativeAction,
+  saveNativeBackup,
 } from './services/nativeBridge';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useSwipeBack } from './hooks/useSwipeBack';
@@ -203,6 +206,74 @@ export default function App() {
     });
     return () => unsub();
   }, []);
+
+  // Step 3: Handle native Android launcher shortcuts and incoming shared content (ACTION_SEND)
+  useEffect(() => {
+    const handleSharedText = (title: string, text: string) => {
+      if (!text || !text.trim()) return;
+      nativeHaptic('success');
+
+      const isShopping = text.includes('- [ ]') || /купить|список покупок|магазин/i.test(title + ' ' + text);
+      const category: NoteCategory = isShopping ? 'shopping' : 'note';
+
+      const newNote: Note = {
+        id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        title: title.trim() || (isShopping ? '🛒 Список из приложения' : '📝 Принятая заметка'),
+        content: text.trim(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        category,
+        paperStyle: 'grid',
+        isPinned: true,
+        tags: extractSmartTagsLocally(title, text, category),
+      };
+
+      const enriched = enrichNoteMetadata(newNote);
+      setNotes((prev) => [enriched, ...prev]);
+      setSelectedNote(enriched);
+      setActiveTab('notes');
+      syncNoteToRemote(roomCode, enriched);
+    };
+
+    const handleNativeAction = (action: string) => {
+      if (!action) return;
+      nativeHaptic('medium');
+      if (action === 'new-note') {
+        handleCreateNewNote('note');
+      } else if (action === 'shopping') {
+        setActiveTab('shopping');
+      } else if (action === 'calc') {
+        setActiveTab('calc');
+      } else if (action === 'event') {
+        handleCreateNewNote('event');
+      }
+    };
+
+    // 1. Check if app was started with pending shared content or shortcut
+    const pendingShare = getPendingNativeSharedContent();
+    if (pendingShare && pendingShare.text) {
+      handleSharedText(pendingShare.title, pendingShare.text);
+    }
+
+    const pendingAct = getPendingNativeAction();
+    if (pendingAct) {
+      handleNativeAction(pendingAct);
+    }
+
+    // 2. Set global window callbacks for runtime events (when app is already running in background)
+    window.onNativeSharedContent = (title: string, text: string) => {
+      handleSharedText(title, text);
+    };
+
+    window.onNativeAction = (action: string) => {
+      handleNativeAction(action);
+    };
+
+    return () => {
+      delete window.onNativeSharedContent;
+      delete window.onNativeAction;
+    };
+  }, [roomCode]);
 
   // Periodic Reminder / Push Notification Dispatcher
   useEffect(() => {

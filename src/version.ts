@@ -11,15 +11,57 @@ export interface ReleaseNote {
   }[];
 }
 
-export const APP_VERSION = '1.9.5';
-export const APP_BUILD = 195;
-export const APP_RELEASE_DATE = '4 ноября 2026';
+export const APP_VERSION = '1.9.6';
+export const APP_BUILD = 196;
+export const APP_RELEASE_DATE = '6 ноября 2026';
 
 export const RELEASES_HISTORY: ReleaseNote[] = [
   {
+    version: '1.9.6',
+    releaseDate: '6 ноября 2026',
+    isLatest: true,
+    title: '«Усиленный гибрид» — Шаги 3, 4, 5: App Shortcuts, системная биометрия и бэкап в Documents',
+    highlights: [
+      'Шаг 3: Системные App Shortcuts на иконке лаунчера («Новая заметка», «Список покупок», «Финансы», «Событие») для быстрого перехода в нужный раздел',
+      'Шаг 3: Приём контента из других приложений (Android ACTION_SEND Intent): делитесь текстом, списками или ссылками из Telegram, браузера или WhatsApp напрямую в NotebookSmart',
+      'Шаг 4: Системная биометрия Android (BiometricPrompt API): мгновенная аутентификация по отпечатку пальца, Face Unlock и PIN-коду экрана блокировки',
+      'Шаг 5: Нативное файловое хранилище (Scoped Storage): сохранение резервных копий базы заметок прямо в системную папку «Documents/NotebookSmart/»',
+      'Менеджер нативных копий в разделе «О приложении» с просмотром файлов на устройстве, восстановлением в один клик и интерактивными тестами',
+    ],
+    categories: [
+      {
+        name: '🚀 Шаг 3: App Shortcuts & Прием шаринга',
+        icon: 'Layers',
+        items: [
+          'Ярлыки быстрого доступа по долгому нажатию на иконку приложения на рабочем столе',
+          'Интеграция с системным меню «Поделиться» (ACTION_SEND text/plain) с авто-определением списков покупок',
+          'Глубокие ссылки (Deep Links) notebooksmart://action/*',
+        ],
+      },
+      {
+        name: '🔒 Шаг 4: Нативная биометрия (BiometricPrompt)',
+        icon: 'Fingerprint',
+        items: [
+          'Прямой системный диалог Android BiometricPrompt взамен браузерных ограничений WebAuthn',
+          'Поддержка сканера отпечатка пальца, распознавания лица и резервного PIN-кода устройства',
+          'Интеграция с экраном блокировки LockScreen для мгновенного доступа к защищенным финансам и покупкам',
+        ],
+      },
+      {
+        name: '💾 Шаг 5: Нативный бэкап в Documents/',
+        icon: 'HardDrive',
+        items: [
+          'Сохранение полных резервных копий заметок в системное хранилище Documents/NotebookSmart/',
+          'Отображение списка резервных копий прямо на устройстве с возможностью быстрого восстановления и удаления',
+          'Доступность файлов резервных копий в стандартном приложении «Файлы» Android',
+        ],
+      },
+    ],
+  },
+  {
     version: '1.9.5',
     releaseDate: '4 ноября 2026',
-    isLatest: true,
+    isLatest: false,
     title: 'Архитектура «Усиленный гибрид»: нативный виджет рабочего стола, AlarmManager и системный виброотклик',
     highlights: [
       'Архитектура «Усиленный гибрид» (Enhanced Hybrid): объединение сверхбыстрого UI на React/TypeScript с прямым нативным Java-мостом Android',

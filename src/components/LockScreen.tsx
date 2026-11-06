@@ -13,6 +13,11 @@ import {
   Archive,
 } from 'lucide-react';
 import { verifyPasscode, authenticateWithBiometrics } from '../services/security';
+import {
+  isAndroidNativeApp,
+  isNativeBiometricAvailable,
+  authenticateWithNativeBiometrics,
+} from '../services/nativeBridge';
 
 interface LockScreenProps {
   category?: 'payment' | 'shopping' | 'archive' | 'general';
@@ -153,39 +158,68 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     setErrorMessage('');
   };
 
-  // Trigger Biometric authentication
+  const canUseBiometrics = biometricEnabled || (isAndroidNativeApp() && isNativeBiometricAvailable());
+
+  // Trigger Biometric authentication (Native Android BiometricPrompt with WebAuthn fallback)
   const handleBiometricAuth = useCallback(async () => {
-    if (!biometricEnabled) return;
+    if (!canUseBiometrics) return;
     setBiometricError('');
     triggerHaptic(15);
 
-    try {
-      const res = await authenticateWithBiometrics(credentialId);
-      if (res.success) {
-        setIsSuccess(true);
-        triggerHaptic([20, 50, 20]);
-        setTimeout(() => {
-          onUnlock();
-        }, 150);
-      } else if (res.error) {
-        setBiometricError(res.error);
-        triggerHaptic(40);
+    // 1. Try Native Android BiometricPrompt first if running in native app
+    if (isAndroidNativeApp() && isNativeBiometricAvailable()) {
+      try {
+        const nativeRes = await authenticateWithNativeBiometrics(
+          categoryConfig.name,
+          'Подтвердите отпечаток пальца или Face ID'
+        );
+        if (nativeRes.success) {
+          setIsSuccess(true);
+          triggerHaptic([20, 50, 20]);
+          setTimeout(() => {
+            onUnlock();
+          }, 150);
+          return;
+        } else if (nativeRes.error) {
+          setBiometricError(nativeRes.error);
+          triggerHaptic(40);
+          return;
+        }
+      } catch {
+        // Fallback to WebAuthn
       }
-    } catch (e: any) {
-      setBiometricError('Биометрия недоступна');
     }
-  }, [biometricEnabled, credentialId, onUnlock]);
+
+    // 2. WebAuthn fallback for Web/PWA
+    if (biometricEnabled && credentialId) {
+      try {
+        const res = await authenticateWithBiometrics(credentialId);
+        if (res.success) {
+          setIsSuccess(true);
+          triggerHaptic([20, 50, 20]);
+          setTimeout(() => {
+            onUnlock();
+          }, 150);
+        } else if (res.error) {
+          setBiometricError(res.error);
+          triggerHaptic(40);
+        }
+      } catch (e: any) {
+        setBiometricError('Биометрия недоступна');
+      }
+    }
+  }, [canUseBiometrics, biometricEnabled, credentialId, categoryConfig.name, onUnlock]);
 
   // Try biometric once on mount if enabled
   useEffect(() => {
     let timeout: NodeJS.Timeout;
-    if (biometricEnabled) {
+    if (canUseBiometrics) {
       timeout = setTimeout(() => {
         handleBiometricAuth();
       }, 350);
     }
     return () => clearTimeout(timeout);
-  }, [biometricEnabled, handleBiometricAuth]);
+  }, [canUseBiometrics, handleBiometricAuth]);
 
   // Physical keyboard support
   useEffect(() => {
@@ -286,7 +320,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         ))}
 
         {/* Bottom row: Biometrics or Clear */}
-        {biometricEnabled ? (
+        {canUseBiometrics ? (
           <button
             type="button"
             onClick={handleBiometricAuth}

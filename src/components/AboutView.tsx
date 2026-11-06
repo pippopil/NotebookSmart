@@ -36,11 +36,23 @@ import {
   BellRing,
   Activity,
   Cpu,
+  Fingerprint,
+  HardDrive,
+  FileCheck,
+  FolderDown,
+  Trash,
 } from 'lucide-react';
 import {
   getNativeAppInfo,
   isAndroidNativeApp,
   nativeHaptic,
+  isNativeBiometricAvailable,
+  authenticateWithNativeBiometrics,
+  saveNativeBackup,
+  listNativeBackups,
+  readNativeBackup,
+  deleteNativeBackup,
+  NativeBackupItem,
 } from '../services/nativeBridge';
 
 interface AboutViewProps {
@@ -60,12 +72,67 @@ export const AboutView: React.FC<AboutViewProps> = ({
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [hapticTested, setHapticTested] = useState(false);
+  const [biometricStatus, setBiometricStatus] = useState<string | null>(null);
+  const [nativeBackups, setNativeBackups] = useState<NativeBackupItem[]>(() => listNativeBackups());
+  const [backupMsg, setBackupMsg] = useState<string | null>(null);
   const appInfo = getNativeAppInfo();
 
   const handleTestHaptic = () => {
     nativeHaptic('success');
     setHapticTested(true);
     setTimeout(() => setHapticTested(false), 2000);
+  };
+
+  const handleTestBiometrics = async () => {
+    setBiometricStatus('Запрос системной биометрии Android...');
+    const res = await authenticateWithNativeBiometrics(
+      'Тестирование биометрии',
+      'Подтвердите отпечаток пальца или Face ID'
+    );
+    if (res.success) {
+      nativeHaptic('success');
+      setBiometricStatus('✓ Биометрия успешно подтверждена!');
+    } else {
+      nativeHaptic('warning');
+      setBiometricStatus(`Ошибка: ${res.error || 'Отменено пользователем'}`);
+    }
+    setTimeout(() => setBiometricStatus(null), 3500);
+  };
+
+  const handleSaveNativeBackup = async () => {
+    nativeHaptic('medium');
+    setBackupMsg('Сохранение в папку Documents/NotebookSmart...');
+    const res = await saveNativeBackup(notes);
+    if (res.success) {
+      nativeHaptic('success');
+      setBackupMsg(`✓ Сохранено в Documents/NotebookSmart/ (${notes.length} заметок)`);
+      setNativeBackups(listNativeBackups());
+    } else {
+      nativeHaptic('warning');
+      setBackupMsg(`Ошибка: ${res.error}`);
+    }
+    setTimeout(() => setBackupMsg(null), 4000);
+  };
+
+  const handleRestoreNativeBackup = async (fileName: string) => {
+    if (!window.confirm(`Восстановить заметки из файла "${fileName}"? Они добавятся в вашу тетрадь.`)) return;
+    nativeHaptic('medium');
+    const restoredNotes = await readNativeBackup(fileName);
+    if (restoredNotes && onRestoreNotes) {
+      nativeHaptic('success');
+      onRestoreNotes(restoredNotes);
+      alert(`Успешно восстановлено ${restoredNotes.length} заметок!`);
+    } else {
+      nativeHaptic('warning');
+      alert('Ошибка при чтении файла резервной копии.');
+    }
+  };
+
+  const handleDeleteNativeBackup = (fileName: string) => {
+    if (!window.confirm(`Удалить резервную копию "${fileName}"?`)) return;
+    deleteNativeBackup(fileName);
+    setNativeBackups(listNativeBackups());
+    nativeHaptic('light');
   };
 
   const handleUpdate = async () => {
@@ -215,31 +282,33 @@ export const AboutView: React.FC<AboutViewProps> = ({
         </div>
 
         <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-300 leading-relaxed">
-          В версии 1.9.5 реализован <strong>«Усиленный гибрид»</strong>: мощное ядро React/TypeScript объединено с нативным мостом Android (Java/Kotlin Bridge). Это даёт идеальный баланс: мгновенные кроссплатформенные обновления и полный доступ к аппаратным функциям смартфона.
+          В версии 1.9.6 реализованы все 5 ключевых шагов архитектуры <strong>«Усиленный гибрид»</strong>: мощное ядро React 19 / TypeScript объединено с прямым Java/Android мостом. Это даёт идеальный баланс: мгновенный отзывчивый UI и полный доступ ко всем системным API Android.
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+          {/* STEP 1 & 2: Widget */}
           <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
             <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Smartphone className="w-4 h-4" />
             </div>
             <div>
               <strong className="text-stone-900 dark:text-white block mb-0.5">
-                Нативный виджет экрана (AppWidget)
+                Шаг 1-2: Виджет рабочего стола (AppWidget)
               </strong>
               <p className="text-stone-600 dark:text-stone-400 leading-snug">
-                RemoteViews виджет прямо на рабочем столе телефона с живым списком покупок и суммами счетов.
+                RemoteViews виджет 3x2 / 4x2 прямо на домашнем экране с живым списком покупок и суммами счетов.
               </p>
             </div>
           </div>
 
+          {/* ALARM MANAGER */}
           <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
             <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
               <BellRing className="w-4 h-4" />
             </div>
             <div>
               <strong className="text-stone-900 dark:text-white block mb-0.5">
-                Точные напоминания (AlarmManager)
+                Точные будильники (AlarmManager)
               </strong>
               <p className="text-stone-600 dark:text-stone-400 leading-snug">
                 setExactAndAllowWhileIdle + BroadcastReceiver будят телефон и присылают пуш даже при закрытом приложении.
@@ -247,44 +316,147 @@ export const AboutView: React.FC<AboutViewProps> = ({
             </div>
           </div>
 
+          {/* STEP 3: Shortcuts & Share */}
+          <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Шаг 3: Ярлыки (Shortcuts) & Прием шаринга
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Быстрые действия по долгому нажатию на иконку и приём текста/списков из других приложений (ACTION_SEND).
+              </p>
+            </div>
+          </div>
+
+          {/* STEP 4: Native Biometrics */}
+          <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+              <Fingerprint className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Шаг 4: Нативная биометрия (BiometricPrompt)
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Системный диалог подтверждения личности через сканер отпечатка пальца, Face Unlock и PIN экрана.
+              </p>
+            </div>
+          </div>
+
+          {/* STEP 5: Native Documents Storage */}
+          <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <HardDrive className="w-4 h-4" />
+            </div>
+            <div>
+              <strong className="text-stone-900 dark:text-white block mb-0.5">
+                Шаг 5: Бэкап в Documents/NotebookSmart/
+              </strong>
+              <p className="text-stone-600 dark:text-stone-400 leading-snug">
+                Прямое сохранение резервных копий базы заметок в системное файловое хранилище Android без браузера.
+              </p>
+            </div>
+          </div>
+
+          {/* Haptics */}
           <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
             <div className="w-8 h-8 rounded-xl bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
               <Zap className="w-4 h-4" />
             </div>
             <div>
               <strong className="text-stone-900 dark:text-white block mb-0.5">
-                Аппаратный виброотклик (Haptic)
+                Аппаратный виброотклик (Haptics)
               </strong>
               <p className="text-stone-600 dark:text-stone-400 leading-snug">
                 Прямое управление системным вибратором смартфона (VibrationEffect) для приятного тактильного ощущения.
               </p>
             </div>
           </div>
-
-          <div className="p-3.5 rounded-2xl bg-stone-50/80 dark:bg-stone-950/50 border border-stone-200/60 dark:border-stone-800 flex items-start gap-3">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <Activity className="w-4 h-4" />
-            </div>
-            <div>
-              <strong className="text-stone-900 dark:text-white block mb-0.5">
-                Локальный OCR + Gemini 3.8 Flash
-              </strong>
-              <p className="text-stone-600 dark:text-stone-400 leading-snug">
-                Офлайн распознавание фото и чеков с умной авто-классификацией тегов прямо на устройстве.
-              </p>
-            </div>
-          </div>
         </div>
 
-        <div className="pt-2 flex flex-wrap items-center gap-3">
+        {/* Action Buttons for Interactive Testing */}
+        <div className="pt-2 flex flex-wrap items-center gap-2.5">
           <button
             onClick={handleTestHaptic}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-950 dark:text-amber-300 border border-amber-400/40 font-bold text-xs sm:text-sm transition active:scale-95 cursor-pointer"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-950 dark:text-amber-300 border border-amber-400/40 font-bold text-xs transition active:scale-95 cursor-pointer"
           >
             <Zap className={`w-4 h-4 ${hapticTested ? 'text-amber-600 fill-amber-500 animate-bounce' : 'text-amber-600'}`} />
-            <span>{hapticTested ? '✓ Тактильный отклик сработал!' : 'Тест тактильного отклика (Haptics)'}</span>
+            <span>{hapticTested ? '✓ Тактильный отклик сработал!' : 'Тест виброотклика'}</span>
+          </button>
+
+          <button
+            onClick={handleTestBiometrics}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-950 dark:text-indigo-300 border border-indigo-400/40 font-bold text-xs transition active:scale-95 cursor-pointer"
+          >
+            <Fingerprint className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <span>Тест биометрии Android</span>
+          </button>
+
+          <button
+            onClick={handleSaveNativeBackup}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-950 dark:text-emerald-300 border border-emerald-400/40 font-bold text-xs transition active:scale-95 cursor-pointer"
+          >
+            <FolderDown className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Сохранить в Documents/</span>
           </button>
         </div>
+
+        {biometricStatus && (
+          <div className="mt-2 px-4 py-2 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-900 dark:text-indigo-300 text-xs font-medium animate-in fade-in">
+            {biometricStatus}
+          </div>
+        )}
+
+        {backupMsg && (
+          <div className="mt-2 px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-900 dark:text-emerald-300 text-xs font-medium animate-in fade-in">
+            {backupMsg}
+          </div>
+        )}
+
+        {/* Saved Native Backups List */}
+        {nativeBackups.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-stone-200/80 dark:border-stone-800">
+            <h3 className="text-xs font-bold text-stone-900 dark:text-white mb-2 flex items-center gap-1.5">
+              <FileCheck className="w-4 h-4 text-emerald-600" />
+              <span>Резервные копии на устройстве ({nativeBackups.length}):</span>
+            </h3>
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {nativeBackups.map((b) => (
+                <div
+                  key={b.fileName}
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 dark:bg-stone-950/60 border border-stone-200/70 dark:border-stone-800 text-xs"
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="font-mono font-semibold text-stone-800 dark:text-stone-200 truncate">
+                      {b.fileName}
+                    </div>
+                    <div className="text-[10px] text-stone-500 dark:text-stone-400">
+                      {new Date(b.lastModified).toLocaleString('ru-RU')} • {(b.size / 1024).toFixed(1)} КБ
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => handleRestoreNativeBackup(b.fileName)}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] transition active:scale-95 cursor-pointer"
+                    >
+                      Восстановить
+                    </button>
+                    <button
+                      onClick={() => handleDeleteNativeBackup(b.fileName)}
+                      className="p-1 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-stone-400 hover:text-rose-600 transition cursor-pointer"
+                      title="Удалить файл"
+                    >
+                      <Trash className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* SYSTEM & BUILD SPECIFICATIONS */}

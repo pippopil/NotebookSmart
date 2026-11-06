@@ -19,7 +19,26 @@ declare global {
       cancelReminder: (id: string) => boolean;
       shareText: (title: string, text: string) => void;
       isNotificationsEnabled: () => boolean;
+
+      // Step 3: Receive Share Content & App Shortcuts
+      getPendingSharedContent?: () => string | null;
+      getPendingAction?: () => string | null;
+
+      // Step 4: Native Android Biometrics (BiometricPrompt)
+      isBiometricAvailable?: () => boolean;
+      promptBiometric?: (title: string, subtitle: string) => void;
+
+      // Step 5: Native Documents & Storage Backup
+      saveNativeBackupFile?: (jsonContent: string, customFileName: string) => string;
+      listNativeBackupFiles?: () => string;
+      readNativeBackupFile?: (fileName: string) => string | null;
+      deleteNativeBackupFile?: (fileName: string) => boolean;
     };
+
+    // System event callbacks invoked by native Android
+    onNativeBiometricResult?: (success: boolean, error: string) => void;
+    onNativeSharedContent?: (title: string, text: string) => void;
+    onNativeAction?: (action: string) => void;
   }
 }
 
@@ -196,5 +215,204 @@ export function nativeShareText(title: string, text: string): boolean {
     return false;
   }
 
+  return false;
+}
+
+/* =========================================================================
+ * STEP 3: Receive Share Content & App Shortcuts
+ * ========================================================================= */
+
+export interface NativeSharedContent {
+  title: string;
+  text: string;
+}
+
+/**
+ * Checks for any pending shared content received when app was opened via ACTION_SEND
+ */
+export function getPendingNativeSharedContent(): NativeSharedContent | null {
+  if (!isAndroidNativeApp()) return null;
+  if (window.AndroidNative && typeof window.AndroidNative.getPendingSharedContent === 'function') {
+    const raw = window.AndroidNative.getPendingSharedContent();
+    if (raw) {
+      try {
+        return JSON.parse(raw) as NativeSharedContent;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Checks for any pending action triggered from Launcher App Shortcuts or Widget
+ */
+export function getPendingNativeAction(): string | null {
+  if (!isAndroidNativeApp()) return null;
+  if (window.AndroidNative && typeof window.AndroidNative.getPendingAction === 'function') {
+    return window.AndroidNative.getPendingAction() || null;
+  }
+  return null;
+}
+
+/* =========================================================================
+ * STEP 4: Native Android Biometrics (BiometricPrompt)
+ * ========================================================================= */
+
+/**
+ * Returns true if Android device hardware supports biometrics and has enrolled credentials
+ */
+export function isNativeBiometricAvailable(): boolean {
+  if (!isAndroidNativeApp()) return false;
+  if (window.AndroidNative && typeof window.AndroidNative.isBiometricAvailable === 'function') {
+    return window.AndroidNative.isBiometricAvailable();
+  }
+  return false;
+}
+
+/**
+ * Prompts native Android BiometricPrompt system dialog (Fingerprint, Face Unlock, Device Credential)
+ */
+export function authenticateWithNativeBiometrics(
+  title: string = 'Вход в NotebookSmart',
+  subtitle: string = 'Подтвердите личность с помощью биометрии'
+): Promise<{ success: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    if (!isAndroidNativeApp()) {
+      resolve({ success: false, error: 'Нативный мост Android недоступен' });
+      return;
+    }
+
+    if (!window.AndroidNative || typeof window.AndroidNative.promptBiometric !== 'function') {
+      resolve({ success: false, error: 'Метод биометрии не поддерживается' });
+      return;
+    }
+
+    // Set one-time callback
+    window.onNativeBiometricResult = (success: boolean, error: string) => {
+      resolve({ success, error: error || undefined });
+    };
+
+    window.AndroidNative.promptBiometric(title, subtitle);
+  });
+}
+
+/* =========================================================================
+ * STEP 5: Native Documents & Storage Backup
+ * ========================================================================= */
+
+export interface NativeBackupItem {
+  fileName: string;
+  size: number;
+  lastModified: number;
+  path: string;
+}
+
+/**
+ * Saves a JSON backup directly to Android external storage & Documents/NotebookSmart/
+ */
+export function saveNativeBackup(
+  notes: Note[],
+  customFileName?: string
+): Promise<{ success: boolean; filePath?: string; error?: string }> {
+  return new Promise((resolve) => {
+    if (!isAndroidNativeApp()) {
+      resolve({ success: false, error: 'Нативный мост Android недоступен' });
+      return;
+    }
+
+    if (!window.AndroidNative || typeof window.AndroidNative.saveNativeBackupFile !== 'function') {
+      resolve({ success: false, error: 'Функция нативного сохранения не поддерживается' });
+      return;
+    }
+
+    try {
+      const dataStr = JSON.stringify(
+        {
+          appName: 'NotebookSmart',
+          version: '1.9.6',
+          exportedAt: new Date().toISOString(),
+          notesCount: notes.length,
+          notes,
+        },
+        null,
+        2
+      );
+
+      const fileName =
+        customFileName || `notebook_backup_${new Date().toISOString().slice(0, 10)}_${Date.now().toString().slice(-4)}.json`;
+      const resultPath = window.AndroidNative.saveNativeBackupFile(dataStr, fileName);
+
+      if (resultPath && !resultPath.startsWith('ERROR:')) {
+        resolve({ success: true, filePath: resultPath });
+      } else {
+        resolve({ success: false, error: resultPath || 'Ошибка при сохранении' });
+      }
+    } catch (e: any) {
+      resolve({ success: false, error: e.message || 'Ошибка сериализации' });
+    }
+  });
+}
+
+/**
+ * Lists all native backup files saved on device
+ */
+export function listNativeBackups(): NativeBackupItem[] {
+  if (!isAndroidNativeApp()) return [];
+  if (window.AndroidNative && typeof window.AndroidNative.listNativeBackupFiles === 'function') {
+    try {
+      const raw = window.AndroidNative.listNativeBackupFiles();
+      if (raw) {
+        return JSON.parse(raw) as NativeBackupItem[];
+      }
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Reads a native backup file and parses the notes
+ */
+export function readNativeBackup(fileName: string): Promise<Note[] | null> {
+  return new Promise((resolve) => {
+    if (!isAndroidNativeApp()) {
+      resolve(null);
+      return;
+    }
+
+    if (!window.AndroidNative || typeof window.AndroidNative.readNativeBackupFile !== 'function') {
+      resolve(null);
+      return;
+    }
+
+    try {
+      const raw = window.AndroidNative.readNativeBackupFile(fileName);
+      if (!raw) {
+        resolve(null);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.notes)) {
+        resolve(parsed.notes);
+      } else {
+        resolve(null);
+      }
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Deletes a native backup file from device
+ */
+export function deleteNativeBackup(fileName: string): boolean {
+  if (!isAndroidNativeApp()) return false;
+  if (window.AndroidNative && typeof window.AndroidNative.deleteNativeBackupFile === 'function') {
+    return window.AndroidNative.deleteNativeBackupFile(fileName);
+  }
   return false;
 }

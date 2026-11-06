@@ -5,27 +5,36 @@
 [![Build NotebookSmart Android & PWA](https://github.com/pippopil/NotebookSmart/actions/workflows/android-build.yml/badge.svg)](https://github.com/pippopil/NotebookSmart/actions/workflows/android-build.yml)
 [![Automatic GitHub Release](https://github.com/pippopil/NotebookSmart/actions/workflows/release.yml/badge.svg)](https://github.com/pippopil/NotebookSmart/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg)](LICENSE)
-[![Version: 1.9.5](https://img.shields.io/badge/version-1.9.5--build195-emerald.svg)](package.json)
+[![Version: 1.9.6](https://img.shields.io/badge/version-1.9.6--build196-emerald.svg)](package.json)
 
 ---
 
 ## ⚡ Архитектура «Усиленный гибрид» (Enhanced Hybrid)
 
-Начиная с версии **1.9.5**, в приложении реализована передовая архитектура **«Усиленный гибрид»**:
+В версиях **1.9.5 – 1.9.6** реализованы все 5 этапов архитектуры **«Усиленный гибрид»**:
 - **Быстрота и гибкость веб-ядра**: Единая кодовая база на React 19 / TypeScript для Web, PWA и Android, позволяющая мгновенно обновлять интерфейс без долгой перекомпиляции.
-- **Прямой нативный Java/Android мост (`AndroidNativeBridge.java` & `window.AndroidNative`)**: Без тяжелых сторонних зависимостей WebView напрямую взаимодействует с сервисами Android.
-- **Нативный виджет рабочего стола (`RemoteViews` AppWidget)**:
+- **Шаг 1: Прямой нативный Java/Android мост (`AndroidNativeBridge.java` & `window.AndroidNative`)**: Без тяжелых сторонних зависимостей WebView напрямую взаимодействует с системными сервисами Android.
+- **Шаг 2: Нативный виджет рабочего стола (`RemoteViews` AppWidget)**:
   - Форматы 3x2 и 4x2 для домашнего экрана смартфона;
   - Показывает актуальный чеклист покупок (первые некупленные товары и счетчик оставшихся) либо суммарные расходы по счетам;
   - Данные сохраняются в `SharedPreferences` и обновляются автоматически при любом изменении заметок;
   - Клик по виджету мгновенно открывает приложение на нужном разделе.
-- **Точные фоновые напоминания (`AlarmManager` + `BroadcastReceiver`)**:
+- **Точные фоновые будильники (`AlarmManager` + `BroadcastReceiver`)**:
   - Метод `setExactAndAllowWhileIdle` гарантирует срабатывание уведомления секунда в секунду;
   - Уведомления и вибрация приходят даже при закрытом/выгруженном приложении и в энергосберегающем режиме Android Doze;
   - Системный канал `notebook_reminders_channel` с высоким приоритетом.
 - **Аппаратная виброотдача (Hardware Vibrator / Haptic Feedback)**:
   - Прямой вызов `VibrationEffect` с градацией силы отклика (`light`, `medium`, `heavy`, `success`, `warning`);
   - Автоматический бесшовный переход на Web Vibration API при работе в браузере.
+- **Шаг 3: Нативные ярлыки лаунчера (App Shortcuts) и прием шаринга (`ACTION_SEND`)**:
+  - Долгое нажатие на иконку приложения открывает быстрые действия: «Новая заметка», «Список покупок», «Финансы», «Событие»;
+  - Поддержка меню «Поделиться» Android (ACTION_SEND): отправка текста, списков или ссылок из Telegram, браузера или WhatsApp напрямую в тетрадь.
+- **Шаг 4: Нативная системная биометрия (`BiometricPrompt API`)**:
+  - Мгновенная системная проверка отпечатка пальца, Face Unlock и PIN-кода экрана блокировки без капризов браузерного WebAuthn;
+  - Защита разделов «Финансы», «Покупки» и «Архив».
+- **Шаг 5: Нативное безопасное хранилище и бэкап в системную папку Documents (`saveNativeBackupFile`)**:
+  - Прямое сохранение резервных копий заметок в системное хранилище `Documents/NotebookSmart/` смартфона;
+  - Встроенный менеджер резервных копий с просмотром файлов, восстановлением в один клик и удалением.
 
 ---
 

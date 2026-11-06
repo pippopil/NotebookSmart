@@ -10,7 +10,15 @@ import android.os.Build;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebView;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.content.ContextCompat;
+import androidx.fragment.app.FragmentActivity;
+import java.io.File;
+import java.io.FileWriter;
+import java.util.concurrent.Executor;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -28,7 +36,7 @@ public class AndroidNativeBridge {
 
     @JavascriptInterface
     public String getNativeVersion() {
-        return "Enhanced-Hybrid v1.9.5";
+        return "Enhanced-Hybrid v1.9.6";
     }
 
     /**
@@ -183,5 +191,200 @@ public class AndroidNativeBridge {
     @JavascriptInterface
     public boolean isNotificationsEnabled() {
         return NotificationManagerCompat.from(activity).areNotificationsEnabled();
+    }
+
+    /* =========================================================================
+     * STEP 3: Receive Share Content & App Shortcuts
+     * ========================================================================= */
+
+    @JavascriptInterface
+    public String getPendingSharedContent() {
+        if (activity instanceof MainActivity) {
+            return ((MainActivity) activity).getAndClearPendingSharedContent();
+        }
+        return null;
+    }
+
+    @JavascriptInterface
+    public String getPendingAction() {
+        if (activity instanceof MainActivity) {
+            return ((MainActivity) activity).getAndClearPendingAction();
+        }
+        return null;
+    }
+
+    /* =========================================================================
+     * STEP 4: Native Android Biometrics (BiometricPrompt)
+     * ========================================================================= */
+
+    @JavascriptInterface
+    public boolean isBiometricAvailable() {
+        try {
+            BiometricManager biometricManager = BiometricManager.from(activity);
+            int canAuth = biometricManager.canAuthenticate(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            );
+            return canAuth == BiometricManager.BIOMETRIC_SUCCESS;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @JavascriptInterface
+    public void promptBiometric(final String title, final String subtitle) {
+        activity.runOnUiThread(() -> {
+            try {
+                if (!(activity instanceof FragmentActivity)) {
+                    notifyBiometricResult(false, "Activity does not support FragmentActivity");
+                    return;
+                }
+                FragmentActivity fragmentActivity = (FragmentActivity) activity;
+                Executor executor = ContextCompat.getMainExecutor(activity);
+
+                BiometricPrompt biometricPrompt = new BiometricPrompt(
+                    fragmentActivity,
+                    executor,
+                    new BiometricPrompt.AuthenticationCallback() {
+                        @Override
+                        public void onAuthenticationError(int errorCode, CharSequence errString) {
+                            super.onAuthenticationError(errorCode, errString);
+                            notifyBiometricResult(false, errString != null ? errString.toString() : "Ошибка биометрии");
+                        }
+
+                        @Override
+                        public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                            super.onAuthenticationSucceeded(result);
+                            notifyBiometricResult(true, "");
+                        }
+
+                        @Override
+                        public void onAuthenticationFailed() {
+                            super.onAuthenticationFailed();
+                        }
+                    }
+                );
+
+                BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
+                    .setTitle(title != null && !title.isEmpty() ? title : "Вход в NotebookSmart")
+                    .setSubtitle(subtitle != null && !subtitle.isEmpty() ? subtitle : "Подтвердите личность (отпечаток или Face ID)")
+                    .setAllowedAuthenticators(
+                        BiometricManager.Authenticators.BIOMETRIC_STRONG |
+                        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    )
+                    .build();
+
+                biometricPrompt.authenticate(promptInfo);
+            } catch (Exception e) {
+                notifyBiometricResult(false, e.getMessage());
+            }
+        });
+    }
+
+    private void notifyBiometricResult(final boolean success, final String error) {
+        activity.runOnUiThread(() -> {
+            try {
+                if (activity instanceof MainActivity) {
+                    MainActivity ma = (MainActivity) activity;
+                    if (ma.getBridge() != null && ma.getBridge().getWebView() != null) {
+                        WebView wv = ma.getBridge().getWebView();
+                        String safeError = error != null ? error.replace("'", "\\'") : "";
+                        wv.evaluateJavascript(
+                            "if (window.onNativeBiometricResult) { window.onNativeBiometricResult(" + success + ", '" + safeError + "'); }",
+                            null
+                        );
+                    }
+                }
+            } catch (Exception ignored) {}
+        });
+    }
+
+    /* =========================================================================
+     * STEP 5: Native Storage & Documents Backup
+     * ========================================================================= */
+
+    @JavascriptInterface
+    public String saveNativeBackupFile(String jsonContent, String customFileName) {
+        try {
+            File dir = new File(activity.getExternalFilesDir(null), "Backups");
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+
+            String fileName = (customFileName != null && !customFileName.isEmpty()) 
+                ? customFileName 
+                : "notebook_backup_" + System.currentTimeMillis() + ".json";
+
+            File targetFile = new File(dir, fileName);
+            try (FileWriter writer = new FileWriter(targetFile)) {
+                writer.write(jsonContent);
+            }
+
+            // Also attempt to mirror into public Documents/NotebookSmart
+            try {
+                File publicDir = new File(
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS),
+                    "NotebookSmart"
+                );
+                if (publicDir.exists() || publicDir.mkdirs()) {
+                    File publicFile = new File(publicDir, fileName);
+                    try (FileWriter writer = new FileWriter(publicFile)) {
+                        writer.write(jsonContent);
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            return targetFile.getAbsolutePath();
+        } catch (Exception e) {
+            return "ERROR: " + e.getMessage();
+        }
+    }
+
+    @JavascriptInterface
+    public String listNativeBackupFiles() {
+        try {
+            File dir = new File(activity.getExternalFilesDir(null), "Backups");
+            JSONArray arr = new JSONArray();
+            if (dir.exists()) {
+                File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
+                if (files != null) {
+                    java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+                    for (File f : files) {
+                        JSONObject item = new JSONObject();
+                        item.put("fileName", f.getName());
+                        item.put("size", f.length());
+                        item.put("lastModified", f.lastModified());
+                        item.put("path", f.getAbsolutePath());
+                        arr.put(item);
+                    }
+                }
+            }
+            return arr.toString();
+        } catch (Exception e) {
+            return "[]";
+        }
+    }
+
+    @JavascriptInterface
+    public String readNativeBackupFile(String fileName) {
+        try {
+            File dir = new File(activity.getExternalFilesDir(null), "Backups");
+            File file = new File(dir, fileName);
+            if (!file.exists()) return null;
+            byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
+            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @JavascriptInterface
+    public boolean deleteNativeBackupFile(String fileName) {
+        try {
+            File dir = new File(activity.getExternalFilesDir(null), "Backups");
+            File file = new File(dir, fileName);
+            return file.exists() && file.delete();
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
