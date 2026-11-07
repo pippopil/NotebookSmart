@@ -5,7 +5,16 @@
 [![Build NotebookSmart Android & PWA](https://github.com/pippopil/NotebookSmart/actions/workflows/android-build.yml/badge.svg)](https://github.com/pippopil/NotebookSmart/actions/workflows/android-build.yml)
 [![Automatic GitHub Release](https://github.com/pippopil/NotebookSmart/actions/workflows/release.yml/badge.svg)](https://github.com/pippopil/NotebookSmart/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg)](LICENSE)
-[![Version: 1.9.6](https://img.shields.io/badge/version-1.9.6--build196-emerald.svg)](package.json)
+[![Version: 1.9.7](https://img.shields.io/badge/version-1.9.7--build197-emerald.svg)](package.json)
+
+---
+
+## 🚀 Что нового в версии 1.9.7
+- **Умное выталкивание карточки баланса вверх при вводе текста**: При открытии экранной клавиатуры (Gboard и др.) массивная финансовая панель плавно сворачивается в компактную аккуратную строку `💰 +Прибыль / −Расход = Итог`, освобождая **более 250px полезного пространства экрана** для комфортного набора текста в тетради.
+- **Интерактивная кнопка сворачивания/разворачивания**: В шапку панели добавлен переключатель `ChevronUp`/`ChevronDown`, позволяющий вручную свернуть или развернуть карточки в любой момент.
+- **Скрытие плавающего блока «Остаток в итоге»**: Плавающая плашка больше не перекрывает активные строки тетради во время набора текста.
+- **Режим `adjustResize` и `interactive-widget=resizes-content`**: Манифест Android и мета-тег Viewport настроены так, чтобы веб-контейнер мгновенно подстраивался под реальную высоту клавиатуры без перекрытия фокуса ввода.
+- **Увеличенный нижний отступ (`pb-36`)**: Последние строки длинных заметок теперь легко скроллятся высоко над клавиатурой.
 
 ---
 

@@ -43,6 +43,8 @@ import {
   Image as ImageIcon,
   Type,
   Loader2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { ShareNoteModal } from './ShareNoteModal';
@@ -118,6 +120,26 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   // Formatting & Preview Mode
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
   const [isSocialShareOpen, setIsSocialShareOpen] = useState<boolean>(false);
+
+  // Virtual keyboard & writing focus detection for smart card lifting ("выталкивание карточки вверх")
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState<boolean>(false);
+  const [isTextareaFocused, setIsTextareaFocused] = useState<boolean>(false);
+  const [isCardCollapsedManually, setIsCardCollapsedManually] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const handleResize = () => {
+      // If visual viewport height is substantially smaller than window.innerHeight, the virtual keyboard is open
+      const diff = window.innerHeight - vv.height;
+      setIsKeyboardOpen(diff > 140);
+    };
+    vv.addEventListener('resize', handleResize);
+    return () => vv.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isTyping = isTextareaFocused || isKeyboardOpen;
+  const shouldLiftCard = isCardCollapsedManually !== null ? isCardCollapsedManually : isTyping;
 
   // Mobile swipe navigation: swipe horizontally returns to main notes screen
   useSwipeBack({
@@ -666,9 +688,49 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       </div>
 
-      {/* CATEGORY SELECTOR (Never overflows, wrap-protected) */}
-      <div className="px-3 sm:px-4 py-2 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+      {/* CATEGORY SELECTOR & QUICK STATUS (Compact when keyboard is open or card is lifted) */}
+      {shouldLiftCard ? (
+        <div className="px-3 sm:px-4 py-1.5 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-2 shrink-0 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none min-w-0">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-900 dark:text-amber-300 font-bold text-[11px] shrink-0">
+              {category === 'payment' && <Calculator className="w-3 h-3 text-amber-600" />}
+              {category === 'shopping' && <ShoppingCart className="w-3 h-3 text-emerald-600" />}
+              {category === 'event' && <Calendar className="w-3 h-3 text-purple-600" />}
+              {category === 'note' && <FileText className="w-3 h-3 text-blue-600" />}
+              <span>
+                {category === 'payment'
+                  ? 'Финансы'
+                  : category === 'shopping'
+                  ? 'Покупки'
+                  : category === 'event'
+                  ? 'События'
+                  : 'Заметка'}
+              </span>
+            </span>
+            {tags.slice(0, 3).map((t) => (
+              <span
+                key={t}
+                className="text-[10px] font-mono text-stone-600 dark:text-stone-400 bg-stone-200/70 dark:bg-stone-800 px-1.5 py-0.5 rounded-md shrink-0"
+              >
+                #{t}
+              </span>
+            ))}
+            {tags.length > 3 && (
+              <span className="text-[10px] text-stone-500 font-mono">+{tags.length - 3}</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsCardCollapsedManually(false)}
+            className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:underline cursor-pointer shrink-0"
+            title="Развернуть категории, теги и карточки"
+          >
+            Развернуть
+          </button>
+        </div>
+      ) : (
+        <div className="px-3 sm:px-4 py-2 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
           {[
             { id: 'note', label: 'Заметка', icon: FileText, activeClass: 'bg-blue-600 text-white' },
             { id: 'payment', label: 'Финансы', icon: Calculator, activeClass: 'bg-amber-600 text-white' },
@@ -982,9 +1044,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* Note Title Input with Clear High Contrast */}
-      <div className="px-4 py-2.5 bg-white/80 dark:bg-stone-900/60 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
+      <div className={`px-3 sm:px-4 bg-white/80 dark:bg-stone-900/60 border-b border-amber-900/10 dark:border-stone-800 shrink-0 transition-all ${
+        shouldLiftCard ? 'py-1 sm:py-1.5' : 'py-2 sm:py-2.5'
+      }`}>
         <input
           type="text"
           value={title}
@@ -998,12 +1063,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               ? 'Учет доходов, расходов и баланса...'
               : 'Заголовок страницы тетради...'
           }
-          className="w-full bg-transparent text-base sm:text-lg font-bold text-stone-900 dark:text-white placeholder-stone-500/70 dark:placeholder-stone-400 focus:outline-none font-mono"
+          className={`w-full bg-transparent font-bold text-stone-900 dark:text-white placeholder-stone-500/70 dark:placeholder-stone-400 focus:outline-none font-mono ${
+            shouldLiftCard ? 'text-sm sm:text-base' : 'text-base sm:text-lg'
+          }`}
         />
       </div>
 
       {/* AI AUTO-TAGGING & ORGANIZATION BAR */}
-      <div className="px-4 py-2 bg-stone-50/90 dark:bg-stone-900/50 border-b border-amber-900/10 dark:border-stone-800 text-xs">
+      {!shouldLiftCard && (
+      <div className="px-4 py-2 bg-stone-50/90 dark:bg-stone-900/50 border-b border-amber-900/10 dark:border-stone-800 text-xs shrink-0">
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="flex items-center gap-1 text-stone-500 dark:text-stone-400 font-semibold text-[11px] mr-0.5">
             <Tag className="w-3 h-3 text-amber-600 dark:text-amber-400" />
@@ -1101,56 +1169,112 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* FINANCIAL BREAKDOWN PANEL: ПРИБЫЛЬ vs РАСХОДЫ vs ОСТАТОК */}
       {(mathSummary.hasIncomeExpenseSplit || category === 'payment') && (
-        <div className="mx-3 sm:mx-4 mt-2 bg-white/95 dark:bg-stone-900/90 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-3 shadow-xs">
-          <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-amber-900/10 dark:border-stone-800">
-            <span className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
-              <Wallet className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>Баланс: Прибыль минус Расходы</span>
-            </span>
-            {mathSummary.totalIncome > 0 && (
-              <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60">
-                Норма сбережений: {mathSummary.savingsRatePercent}%
-              </span>
-            )}
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 font-mono text-center">
-            {/* Income */}
-            <div className="p-2 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40">
-              <span className="text-[10px] text-emerald-800 dark:text-emerald-400 block font-semibold">
-                🟢 Прибыль (доходы)
-              </span>
-              <span className="text-xs sm:text-sm font-bold text-emerald-900 dark:text-emerald-300">
+        shouldLiftCard ? (
+          /* COMPACT LIFTED STRIP: Gives maximum vertical space to notebook */
+          <div className="mx-2.5 sm:mx-3 mt-1.5 px-3 py-1.5 bg-white/95 dark:bg-stone-900/90 border border-amber-900/15 dark:border-stone-800 rounded-xl shadow-2xs flex items-center justify-between gap-1.5 text-xs shrink-0 transition-all">
+            <button
+              type="button"
+              onClick={() => setIsCardCollapsedManually(false)}
+              className="flex items-center gap-1.5 font-mono text-[11px] sm:text-xs truncate text-left cursor-pointer hover:opacity-80 flex-1 min-w-0"
+              title="Развернуть карточки баланса"
+            >
+              <Wallet className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-emerald-700 dark:text-emerald-400 font-bold whitespace-nowrap">
                 +{formatMoney(mathSummary.totalIncome, mathSummary.currency)}
               </span>
-            </div>
-
-            {/* Expenses */}
-            <div className="p-2 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/40">
-              <span className="text-[10px] text-rose-800 dark:text-rose-400 block font-semibold">
-                🔴 Расходы (траты)
-              </span>
-              <span className="text-xs sm:text-sm font-bold text-rose-900 dark:text-rose-300">
+              <span className="text-stone-400 select-none">/</span>
+              <span className="text-rose-600 dark:text-rose-400 font-bold whitespace-nowrap">
                 −{formatMoney(mathSummary.totalExpenses, mathSummary.currency)}
               </span>
-            </div>
-
-            {/* Net Remaining Balance */}
-            <div className="p-2 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40">
-              <span className="text-[10px] text-amber-900 dark:text-amber-300 block font-semibold">
-                💰 Остаток (итог)
-              </span>
-              <span className={`text-xs sm:text-sm font-extrabold ${
-                mathSummary.netBalance >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+              <span className="text-stone-400 select-none">=</span>
+              <span className={`font-extrabold whitespace-nowrap ${
+                mathSummary.netBalance >= 0 ? 'text-emerald-800 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-400'
               }`}>
                 {formatMoney(mathSummary.netBalance, mathSummary.currency)}
               </span>
+              {mathSummary.totalIncome > 0 && (
+                <span className="text-[10px] text-emerald-800 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded-md border border-emerald-200 dark:border-emerald-800/60 ml-0.5 whitespace-nowrap hidden xs:inline">
+                  {mathSummary.savingsRatePercent}%
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsCardCollapsedManually(false)}
+              className="p-1 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 cursor-pointer shrink-0 flex items-center gap-1 text-[11px] font-semibold transition active:scale-95"
+              title="Развернуть карточки баланса"
+            >
+              <span className="hidden xs:inline">Развернуть</span>
+              <ChevronDown className="w-3.5 h-3.5 text-amber-600" />
+            </button>
+          </div>
+        ) : (
+          /* FULL 3-BOX FINANCIAL BREAKDOWN CARD */
+          <div className="mx-3 sm:mx-4 mt-2 bg-white/95 dark:bg-stone-900/90 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-3 shadow-xs shrink-0 transition-all">
+            <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-amber-900/10 dark:border-stone-800">
+              <span className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                <Wallet className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>Баланс: Прибыль минус Расходы</span>
+              </span>
+
+              <div className="flex items-center gap-1.5">
+                {mathSummary.totalIncome > 0 && (
+                  <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60">
+                    Норма сбережений: {mathSummary.savingsRatePercent}%
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsCardCollapsedManually(true)}
+                  className="flex items-center gap-0.5 px-2 py-0.8 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-300 text-[11px] font-medium cursor-pointer transition active:scale-95 border border-stone-200 dark:border-stone-700"
+                  title="Свернуть карточку вверх для просторного поля ввода"
+                >
+                  <ChevronUp className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="hidden xs:inline">Свернуть</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 font-mono text-center">
+              {/* Income */}
+              <div className="p-2 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40">
+                <span className="text-[10px] text-emerald-800 dark:text-emerald-400 block font-semibold">
+                  🟢 Прибыль (доходы)
+                </span>
+                <span className="text-xs sm:text-sm font-bold text-emerald-900 dark:text-emerald-300">
+                  +{formatMoney(mathSummary.totalIncome, mathSummary.currency)}
+                </span>
+              </div>
+
+              {/* Expenses */}
+              <div className="p-2 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/40">
+                <span className="text-[10px] text-rose-800 dark:text-rose-400 block font-semibold">
+                  🔴 Расходы (траты)
+                </span>
+                <span className="text-xs sm:text-sm font-bold text-rose-900 dark:text-rose-300">
+                  −{formatMoney(mathSummary.totalExpenses, mathSummary.currency)}
+                </span>
+              </div>
+
+              {/* Net Remaining Balance */}
+              <div className="p-2 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40">
+                <span className="text-[10px] text-amber-900 dark:text-amber-300 block font-semibold">
+                  💰 Остаток (итог)
+                </span>
+                <span className={`text-xs sm:text-sm font-extrabold ${
+                  mathSummary.netBalance >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                }`}>
+                  {formatMoney(mathSummary.netBalance, mathSummary.currency)}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        )
       )}
 
       {/* TEXT FORMATTING TOOLBAR (Bold, Italic, Underline, Color Markers & Preview Mode) */}
@@ -1595,6 +1719,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             ) : (
               <textarea
                 ref={textareaRef}
+                onFocus={() => setIsTextareaFocused(true)}
+                onBlur={() => setIsTextareaFocused(false)}
                 onScroll={handleTextareaScroll}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
@@ -1612,7 +1738,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   fontSize: `${currentFont.size}px`,
                   paddingTop: '14px',
                 }}
-                className="w-full h-full bg-transparent resize-none focus:outline-none font-mono selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-500/70 dark:placeholder-stone-400 font-medium overflow-y-auto"
+                className="w-full h-full bg-transparent resize-none focus:outline-none font-mono selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-500/70 dark:placeholder-stone-400 font-medium overflow-y-auto pb-36"
               />
             )}
           </div>
@@ -1676,8 +1802,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       )}
 
       {/* Floating Cashflow / Grand Total Bar (Supports money ₽ and pieces шт.) */}
-      {(mathSummary.totalCalculatedLines > 0 || (mathSummary.totalPieces || 0) > 0) && (
-        <div className="mx-3 sm:mx-4 mb-2 bg-white/95 dark:bg-stone-900/95 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md">
+      {(mathSummary.totalCalculatedLines > 0 || (mathSummary.totalPieces || 0) > 0) && !shouldLiftCard && (
+        <div className="mx-3 sm:mx-4 mb-2 bg-white/95 dark:bg-stone-900/95 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md transition-all">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Wallet className="w-4 h-4" />
