@@ -1,4 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  isNativeSpeechSupported,
+  startNativeSpeech,
+  stopNativeSpeech,
+} from '../services/nativeBridge';
 
 // Web Speech API interface definitions for TypeScript
 interface SpeechRecognitionEventLike extends Event {
@@ -131,18 +136,22 @@ export function useSpeechDictation({
     smartPunctuationRef.current = smartPunctuation;
   }, [smartPunctuation]);
 
-  // Check browser support on mount
+  // Check browser or native Android support on mount
   useEffect(() => {
     if (typeof window === 'undefined') {
       setIsSupported(false);
       return;
     }
+    const hasNative = isNativeSpeechSupported();
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    setIsSupported(Boolean(SpeechRec));
+    setIsSupported(hasNative || Boolean(SpeechRec));
   }, []);
 
   const stopListening = useCallback(() => {
     isExplicitlyStopped.current = true;
+    if (isNativeSpeechSupported()) {
+      stopNativeSpeech();
+    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -160,6 +169,43 @@ export function useSpeechDictation({
 
     if (typeof window === 'undefined') return;
 
+    // 1. Try Native Android Google SpeechRecognizer first if running inside Android APK
+    if (isNativeSpeechSupported()) {
+      window.onNativeSpeechResult = (text: string, isFinal: boolean) => {
+        const formatted = formatDictatedRussianText(text, smartPunctuationRef.current);
+        if (isFinal) {
+          setInterimTranscript('');
+          if (onFinalCallbackRef.current && formatted.trim()) {
+            onFinalCallbackRef.current(formatted);
+          }
+        } else {
+          setInterimTranscript(formatted);
+        }
+      };
+
+      window.onNativeSpeechError = (errorMsg: string) => {
+        setError(errorMsg);
+        setIsListening(false);
+        setInterimTranscript('');
+      };
+
+      window.onNativeSpeechState = (state: string) => {
+        if (state === 'start' || state === 'ready') {
+          setIsListening(true);
+          setError(null);
+        } else if (state === 'end') {
+          setIsListening(false);
+          setInterimTranscript('');
+        }
+      };
+
+      isExplicitlyStopped.current = false;
+      setIsListening(true);
+      startNativeSpeech(lang);
+      return;
+    }
+
+    // 2. Fall back to standard browser Web Speech API
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
       setError('Распознавание речи не поддерживается в вашем браузере');

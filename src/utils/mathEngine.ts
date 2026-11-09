@@ -236,6 +236,77 @@ export function safeEvalMath(expressionStr: string): number | null {
 }
 
 /**
+ * Checks if a line contains numbers that are non-financial context:
+ * e.g. dates/years (2024 г.), times (14:00), addresses (дом 12, кв 45),
+ * phone numbers, model versions (uni-s 2024), or general bullet lists without
+ * currency or arithmetic operations.
+ */
+export function isNonFinancialNumberLine(rawText: string): boolean {
+  const t = rawText.trim();
+  if (!t) return true;
+
+  // 1. Explicit financial keywords ALWAYS qualify for calculation
+  const hasFinancialKeyword = /\b(?:руб|рублей|рубля|rub|usd|eur|тенге|₽|\$|€|зарплат|доход|прибыль|аванс|преми|выручк|кешбэк|расход|трат|покупк|аренд|коммуналк|кредит|итого|всего|остаток|баланс|к\s+оплате)\b/i.test(t);
+
+  // 2. Explicit piece units ALWAYS qualify for piece calculation
+  const hasPieceUnit = /(?:\b\d+\s*(?:шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs|items?))/iu.test(t);
+
+  // 3. Explicit arithmetic operation with operators (+, -, *, /, %) between numbers
+  // e.g. "450 * 2", "2400 + 1350", "5000 - 15%"
+  const hasArithmeticOperation = /\d+\s*[+*\/]\s*\d+|\d+\s*-\s*\d+(?:\s*%|\s*руб|\s*₽|\s*$)/.test(t);
+
+  // If it has arithmetic operations, financial keywords, or piece units:
+  if (hasFinancialKeyword || hasPieceUnit || hasArithmeticOperation) {
+    // Exception: If the line is purely a phone number without any financial words, ignore:
+    if (/(?:(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/.test(t) && !hasFinancialKeyword) {
+      return true;
+    }
+    return false;
+  }
+
+  // 4. Check for known non-financial patterns:
+  // - Years: e.g. "2024 г.", "2024г", "2024 год", "2023 г", "1998 г."
+  if (/\b(?:19|20)\d{2}\s*(?:г(?:\.|\b)|год[а-я]*)/i.test(t)) {
+    return true;
+  }
+
+  // - Times: e.g. "14:00", "09:30", "18:45"
+  if (/\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(t)) {
+    return true;
+  }
+
+  // - Addresses: дом, д., кв., квартира, этаж, офис, корпус, стр.
+  if (/\b(?:дом|д\.|кв\.|кв|квартир[а-я]*|этаж|офис|корп(?:ус|\.)?|стр(?:\.|оение)?)\s*\d+/i.test(t)) {
+    return true;
+  }
+
+  // - Dates: e.g. "12.05.2024", "09/11/2026", "15.04"
+  if (/\b\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?\b/.test(t)) {
+    return true;
+  }
+
+  // - Versions and model numbers: e.g. "uni-s 2024", "v1.9.7", "iPhone 15", "Android 14"
+  if (/\b(?:v|ver|версия|версии|changan|iphone|samsung|android|windows)\b/i.test(t)) {
+    return true;
+  }
+
+  // - Phone numbers:
+  if (/(?:(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})|\b\d{7,11}\b/.test(t)) {
+    return true;
+  }
+
+  // - If it is a bullet list item (starting with -, *, •) and has NO financial keyword or operators:
+  // e.g. "- Адаптировать плеер под ГУ автомобиля Changan uni-s 2024"
+  if (/^[-*•]\s+/.test(t)) {
+    return true;
+  }
+
+  // - Single isolated number without arithmetic operator and no financial keyword:
+  // It is regular text (not a finance calculation)
+  return true;
+}
+
+/**
  * Analyzes a single line of note text.
  * Determines if it contains a payment or arithmetic calculation.
  */
@@ -259,6 +330,21 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
   const isTotalLine = /^[-*•]?\s*(?:итого|всего|общая сумма|расходы|остаток(?: бюджета)?|баланс|total|sum|balance)(?:\s*[:—\-=]|\s+|$)/i.test(
     trimmed
   );
+
+  // If this line contains non-financial numbers (dates, years, phones, addresses, bullet lists),
+  // skip arithmetic calculation completely!
+  if (!isTotalLine && isNonFinancialNumberLine(trimmed)) {
+    return {
+      lineNumber,
+      rawText,
+      expression: null,
+      result: null,
+      currency: defaultCurrency,
+      label: trimmed,
+      isTotalLine: false,
+      type: 'neutral',
+    };
+  }
 
   // 1. Normalize Russian multipliers (3-х тысяч, 3 тыс, 3 тысячи, 3к)
   const withMultipliers = normalizeMultipliers(trimmed);

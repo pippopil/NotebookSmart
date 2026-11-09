@@ -45,6 +45,12 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  FileAudio,
+  Wand2,
+  Eraser,
+  ListMusic,
+  RotateCcw,
+  FileCheck,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { ShareNoteModal } from './ShareNoteModal';
@@ -419,17 +425,39 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     }, 10);
   };
 
-  // Voice Dictation (Web Speech API)
+  // Voice Dictation & Dedicated Voice Transcription Hub
   const [useSmartPunctuation, setUseSmartPunctuation] = useState<boolean>(true);
+  const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
+  const [transcriptHistory, setTranscriptHistory] = useState<
+    { id: string; time: string; text: string }[]
+  >([]);
 
   const handleSpeechFinal = (finalChunk: string) => {
     triggerHaptic(10);
+    const chunkTrimmed = finalChunk.trim();
+    if (!chunkTrimmed) return;
+
+    const nowTime = new Date().toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    setTranscriptHistory((prev) => [
+      ...prev,
+      {
+        id: String(Date.now()) + '-' + Math.random().toString(36).substring(2, 6),
+        time: nowTime,
+        text: chunkTrimmed,
+      },
+    ]);
+
     const textarea = textareaRef.current;
     if (textarea) {
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
       const current = textarea.value;
-      let textToInsert = finalChunk;
+      let textToInsert = chunkTrimmed;
       if (
         start > 0 &&
         !/\s$/.test(current.substring(0, start)) &&
@@ -447,9 +475,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       }, 10);
     } else {
       setContent((prev) => {
-        if (!prev) return finalChunk.trim();
-        const needsSpace = !/\s$/.test(prev) && !/^[.,;:!?]/.test(finalChunk);
-        return prev + (needsSpace ? ' ' : '') + finalChunk;
+        if (!prev) return chunkTrimmed;
+        const needsSpace = !/\s$/.test(prev) && !/^[.,;:!?]/.test(chunkTrimmed);
+        return prev + (needsSpace ? ' ' : '') + chunkTrimmed;
       });
     }
   };
@@ -492,6 +520,86 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       textarea.setSelectionRange(cursorStart, cursorEnd);
     }, 15);
   };
+
+  // Clean Markdown Marker: applies colored highlighting without inserting messy raw HTML tags (<mark class="...">)
+  const applyColorMarker = (colorName: 'yellow' | 'green' | 'pink' | 'blue' | 'orange' | 'purple') => {
+    triggerHaptic(10);
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const current = textarea.value;
+    const selected = current.substring(start, end);
+
+    if (!selected) {
+      const placeholder = 'выделение';
+      const markerTag = `==${colorName}:${placeholder}==`;
+      const nextContent = current.substring(0, start) + markerTag + current.substring(end);
+      setContent(nextContent);
+      setTimeout(() => {
+        textarea.focus();
+        const cursorStart = start + colorName.length + 3; // position cursor inside placeholder
+        textarea.setSelectionRange(cursorStart, cursorStart + placeholder.length);
+      }, 15);
+      return;
+    }
+
+    // Strip previous marker tags if already wrapped
+    const cleanSelected = selected
+      .replace(/<mark class="marker-[^"]+">(.*?)<\/mark>/gi, '$1')
+      .replace(/==(?:[a-z]+:)?(.*?)==/gi, '$1');
+
+    const markerTag = `==${colorName}:${cleanSelected}==`;
+    const nextContent = current.substring(0, start) + markerTag + current.substring(end);
+    setContent(nextContent);
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start, start + markerTag.length);
+    }, 15);
+  };
+
+  // One-click sanitizer: strips legacy <mark class="..."> HTML code tags and restores clean text
+  const handleCleanCodeTags = () => {
+    triggerHaptic(20);
+    const cleaned = content
+      .replace(/<mark class="marker-[^"]+">(.*?)<\/mark>/gi, '$1')
+      .replace(/<mark[^>]*>(.*?)<\/mark>/gi, '$1')
+      .replace(/<\/?[a-z][^>]*>/gi, '');
+    setContent(cleaned);
+    setCopiedText('✓ Все теги кода очищены!');
+    setTimeout(() => setCopiedText(null), 2500);
+  };
+
+  // Remove color marker from selected text (or entire text if nothing selected)
+  const handleRemoveColorMarker = () => {
+    triggerHaptic(10);
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const current = textarea.value;
+    const selected = current.substring(start, end);
+
+    if (!selected) {
+      handleCleanCodeTags();
+      return;
+    }
+
+    const clean = selected
+      .replace(/<mark class="marker-[^"]+">(.*?)<\/mark>/gi, '$1')
+      .replace(/==(?:[a-z]+:)?(.*?)==/gi, '$1');
+
+    const nextContent = current.substring(0, start) + clean + current.substring(end);
+    setContent(nextContent);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start, start + clean.length);
+    }, 15);
+  };
+
+  const hasLegacyHtmlTags = /<mark\b|<\/mark>|<[a-z]+ class=/i.test(content);
 
   // Copy result or insert calculation
   const handleCopyResult = (val: number, cur?: string) => {
@@ -730,7 +838,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       ) : (
         <div className="px-3 sm:px-4 py-2 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5" data-no-swipe="true">
           {[
             { id: 'note', label: 'Заметка', icon: FileText, activeClass: 'bg-blue-600 text-white' },
             { id: 'payment', label: 'Финансы', icon: Calculator, activeClass: 'bg-amber-600 text-white' },
@@ -922,7 +1030,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 </div>
 
                 {/* Quick Reminder Preset Chips */}
-                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5" data-no-swipe="true">
                   <span className="text-[10px] text-stone-600 dark:text-stone-400 uppercase font-bold shrink-0">
                     Быстро:
                   </span>
@@ -1277,8 +1385,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         )
       )}
 
-      {/* TEXT FORMATTING TOOLBAR (Bold, Italic, Underline, Color Markers & Preview Mode) */}
-      <div className="px-3 sm:px-4 py-1.5 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none shrink-0 text-xs">
+      {/* TEXT FORMATTING TOOLBAR (Bold, Italic, Underline, Color Markers, Cleaner & Preview Mode) */}
+      <div
+        data-no-swipe="true"
+        className="px-3 sm:px-4 py-1.5 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none shrink-0 text-xs"
+      >
         <div className="flex items-center gap-1 shrink-0">
           <span className="text-[10px] uppercase font-bold text-stone-500 dark:text-stone-400 mr-1 flex items-center gap-1">
             <Highlighter className="w-3 h-3 text-amber-500" />
@@ -1315,12 +1426,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             <Underline className="w-3.5 h-3.5" />
           </button>
 
-          {/* Color Highlighters */}
+          {/* Clean Color Highlighters (Highlights text without raw HTML code tags) */}
           <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-stone-200 dark:border-stone-700">
             {/* Yellow Marker */}
             <button
               type="button"
-              onClick={() => wrapSelection('<mark class="marker-yellow">', '</mark>')}
+              onClick={() => applyColorMarker('yellow')}
               className="w-5 h-5 rounded-full bg-yellow-300 hover:scale-110 active:scale-95 border border-yellow-500/50 transition cursor-pointer shadow-2xs"
               title="Выделить желтым маркером"
             />
@@ -1328,7 +1439,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             {/* Green Marker */}
             <button
               type="button"
-              onClick={() => wrapSelection('<mark class="marker-green">', '</mark>')}
+              onClick={() => applyColorMarker('green')}
               className="w-5 h-5 rounded-full bg-emerald-400 hover:scale-110 active:scale-95 border border-emerald-600/50 transition cursor-pointer shadow-2xs"
               title="Выделить зеленым маркером"
             />
@@ -1336,7 +1447,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             {/* Pink Marker */}
             <button
               type="button"
-              onClick={() => wrapSelection('<mark class="marker-pink">', '</mark>')}
+              onClick={() => applyColorMarker('pink')}
               className="w-5 h-5 rounded-full bg-pink-400 hover:scale-110 active:scale-95 border border-pink-600/50 transition cursor-pointer shadow-2xs"
               title="Выделить розовым маркером"
             />
@@ -1344,7 +1455,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             {/* Blue Marker */}
             <button
               type="button"
-              onClick={() => wrapSelection('<mark class="marker-blue">', '</mark>')}
+              onClick={() => applyColorMarker('blue')}
               className="w-5 h-5 rounded-full bg-sky-400 hover:scale-110 active:scale-95 border border-sky-600/50 transition cursor-pointer shadow-2xs"
               title="Выделить голубым маркером"
             />
@@ -1352,7 +1463,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             {/* Orange Marker */}
             <button
               type="button"
-              onClick={() => wrapSelection('<mark class="marker-orange">', '</mark>')}
+              onClick={() => applyColorMarker('orange')}
               className="w-5 h-5 rounded-full bg-orange-400 hover:scale-110 active:scale-95 border border-orange-600/50 transition cursor-pointer shadow-2xs"
               title="Выделить оранжевым маркером"
             />
@@ -1360,10 +1471,33 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             {/* Purple Marker */}
             <button
               type="button"
-              onClick={() => wrapSelection('<mark class="marker-purple">', '</mark>')}
+              onClick={() => applyColorMarker('purple')}
               className="w-5 h-5 rounded-full bg-purple-400 hover:scale-110 active:scale-95 border border-purple-600/50 transition cursor-pointer shadow-2xs"
               title="Выделить сиреневым маркером"
             />
+
+            {/* Eraser / Remove Color Marker */}
+            <button
+              type="button"
+              onClick={handleRemoveColorMarker}
+              className="p-1 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition cursor-pointer shadow-2xs ml-0.5"
+              title="Снять выделение цвета с текста"
+            >
+              <Eraser className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Clean HTML code tags button */}
+            {hasLegacyHtmlTags && (
+              <button
+                type="button"
+                onClick={handleCleanCodeTags}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 text-[10px] font-bold transition active:scale-95 cursor-pointer shadow-2xs ml-0.5 animate-pulse"
+                title="Очистить устаревшие теги разметки (<mark>)"
+              >
+                <Wand2 className="w-3 h-3 text-amber-700 dark:text-amber-300" />
+                <span className="hidden xs:inline">Очистить теги</span>
+              </button>
+            )}
           </div>
 
           {/* Font Size Stepper (Управление размером шрифта) */}
@@ -1397,7 +1531,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </div>
         </div>
 
-        {/* Right Tools: OCR Scanner, Voice Dictation & Mode Switcher */}
+        {/* Right Tools: OCR Scanner, Speech Hub & Mode Switcher */}
         <div className="flex items-center gap-1.5 shrink-0">
           {/* Hidden Image Inputs for OCR (Camera & File upload) */}
           <input
@@ -1416,7 +1550,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onChange={handleImageFileSelected}
           />
 
-          {/* OCR Scan Button (Распознавание списков дел, трат и чеков со скриншотов и фото) */}
+          {/* OCR Scan Button */}
           <div className="relative">
             <button
               type="button"
@@ -1473,13 +1607,27 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             )}
           </div>
 
-          {/* Voice Dictation Button in Toolbar */}
+          {/* Dedicated Voice Transcription Hub Button */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic();
+              setShowVoiceModal(true);
+            }}
+            className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition active:scale-95 cursor-pointer shrink-0 shadow-2xs"
+            title="Открыть расшифровку голосовой заметки с таймкодами и историей речи"
+          >
+            <FileAudio className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+            <span className="hidden xs:inline">Расшифровка</span>
+          </button>
+
+          {/* Voice Dictation Inline Button */}
           <button
             type="button"
             onClick={() => {
               triggerHaptic();
               if (!isSpeechSupported) {
-                setCopiedText('Голосовой ввод не поддерживается браузером');
+                setCopiedText('Голосовой ввод не поддерживается');
                 setTimeout(() => setCopiedText(null), 2500);
                 return;
               }
@@ -1490,7 +1638,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 ? 'bg-rose-500 hover:bg-rose-600 text-white border-rose-600 animate-pulse shadow-xs'
                 : 'bg-white hover:bg-rose-50/80 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
             }`}
-            title={isListening ? 'Остановить запись голоса' : 'Диктовать заметку голосом (Web Speech API)'}
+            title={isListening ? 'Остановить запись голоса' : 'Диктовать заметку голосом'}
           >
             <Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce text-white' : 'text-rose-500'}`} />
             <span>{isListening ? 'Слушаю...' : 'Диктовка'}</span>
@@ -1508,7 +1656,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 ? 'bg-amber-600 text-white border-amber-500 shadow-xs'
                 : 'bg-white hover:bg-stone-100 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
             }`}
-            title={isPreviewMode ? 'Переключиться в режим ввода текста' : 'Посмотреть форматирование и маркеры'}
+            title={isPreviewMode ? 'Переключиться в режим ввода текста' : 'Посмотреть красивое форматирование и маркеры'}
           >
             {isPreviewMode ? <Edit3 className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             <span>{isPreviewMode ? 'Редактировать' : 'Красивый вид'}</span>
@@ -1698,6 +1846,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     .replace(/&lt;mark class="marker-blue"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-blue">$1</mark>')
                     .replace(/&lt;mark class="marker-orange"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-orange">$1</mark>')
                     .replace(/&lt;mark class="marker-purple"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-purple">$1</mark>')
+                    .replace(/==yellow:(.*?)==/gi, '<mark class="marker-yellow">$1</mark>')
+                    .replace(/==green:(.*?)==/gi, '<mark class="marker-green">$1</mark>')
+                    .replace(/==pink:(.*?)==/gi, '<mark class="marker-pink">$1</mark>')
+                    .replace(/==blue:(.*?)==/gi, '<mark class="marker-blue">$1</mark>')
+                    .replace(/==orange:(.*?)==/gi, '<mark class="marker-orange">$1</mark>')
+                    .replace(/==purple:(.*?)==/gi, '<mark class="marker-purple">$1</mark>')
+                    .replace(/==(.*?)==/gi, '<mark class="marker-yellow">$1</mark>')
                     .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-stone-950 dark:text-white">$1</strong>')
                     .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
                     .replace(/^- \[ \]/g, '⬜ ')
@@ -1837,13 +1992,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       )}
 
       {/* Quick Keypad Toolbar: Math + Income/Expense Presets + Pieces + Voice */}
-      <div className="px-3 py-2 bg-stone-100/90 dark:bg-stone-900 border-t border-amber-900/10 dark:border-stone-800 flex items-center gap-1.5 overflow-x-auto scrollbar-none shrink-0">
+      <div
+        data-no-swipe="true"
+        className="px-3 py-2 bg-stone-100/90 dark:bg-stone-900 border-t border-amber-900/10 dark:border-stone-800 flex items-center gap-1.5 overflow-x-auto scrollbar-none shrink-0"
+      >
+        {/* Inline Voice Dictation */}
         <button
           type="button"
           onClick={() => {
             triggerHaptic();
             if (!isSpeechSupported) {
-              setCopiedText('Голосовой ввод не поддерживается браузером');
+              setCopiedText('Голосовой ввод не поддерживается');
               setTimeout(() => setCopiedText(null), 2500);
               return;
             }
@@ -1858,6 +2017,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         >
           <Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce text-white' : 'text-rose-500'}`} />
           <span>{isListening ? 'Слушаю...' : '🎙️ Диктовка'}</span>
+        </button>
+
+        {/* Dedicated Voice Transcription Hub Modal Trigger */}
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptic();
+            setShowVoiceModal(true);
+          }}
+          className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 font-mono text-xs font-semibold whitespace-nowrap active:scale-95 transition border border-stone-200 dark:border-stone-700/60 shadow-2xs cursor-pointer flex items-center gap-1 shrink-0"
+          title="Открыть окно расшифровки речи с таймкодами и историей"
+        >
+          <FileAudio className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+          <span>Расшифровка</span>
         </button>
 
         {[
@@ -1886,6 +2059,235 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </button>
         ))}
       </div>
+
+      {/* DEDICATED VOICE TRANSCRIPTION MODAL ("Расшифровка голосовой заметки") */}
+      {showVoiceModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+          <div
+            data-no-swipe="true"
+            className="w-full sm:max-w-xl max-h-[88vh] bg-[#fcfaf7] dark:bg-stone-900 border border-amber-900/20 dark:border-stone-700 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-6"
+          >
+            {/* Modal Header */}
+            <div className="p-4 bg-white/95 dark:bg-stone-950/90 border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-9 h-9 rounded-2xl flex items-center justify-center ${
+                  isListening
+                    ? 'bg-rose-500 text-white animate-pulse'
+                    : 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
+                }`}>
+                  <FileAudio className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                    <span>Расшифровка голосовой заметки</span>
+                    {isListening && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-rose-500 text-white font-mono font-bold animate-ping">
+                        LIVE
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                    Нативное распознавание речи, таймкоды и автоматическая вставка
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic();
+                  setShowVoiceModal(false);
+                }}
+                className="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 dark:text-stone-400 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Sound Wave Visualizer & Live Speech Banner */}
+            <div className="p-4 bg-amber-50/50 dark:bg-stone-950/40 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${isListening ? 'bg-rose-500 animate-ping' : 'bg-stone-400'}`} />
+                  <span className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                    {isListening ? 'Идет запись... Говорите' : 'Микрофон на паузе'}
+                  </span>
+                </div>
+
+                {/* Sound wave bars */}
+                <div className="flex items-center gap-1 h-5">
+                  {[40, 75, 95, 60, 85, 50, 90, 70].map((h, i) => (
+                    <div
+                      key={i}
+                      style={{ height: isListening ? `${h}%` : '20%' }}
+                      className={`w-1 rounded-full transition-all duration-150 ${
+                        isListening
+                          ? 'bg-rose-500 animate-pulse'
+                          : 'bg-stone-300 dark:bg-stone-700'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Live speech preview */}
+              <div className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs font-mono min-h-[48px] flex items-center shadow-inner">
+                {interimTranscript ? (
+                  <span className="text-rose-600 dark:text-rose-400 font-medium italic">
+                    «{interimTranscript}»
+                  </span>
+                ) : isListening ? (
+                  <span className="text-stone-400 dark:text-stone-500 animate-pulse">
+                    Слушаю вас... Говорите фразу, список дел или расчет
+                  </span>
+                ) : (
+                  <span className="text-stone-400 dark:text-stone-500">
+                    Нажмите кнопку «Начать запись» ниже, чтобы надиктовать текст
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Transcribed Text List / History */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2.5 min-h-[160px] max-h-[300px]">
+              <div className="flex items-center justify-between text-[11px] font-bold text-stone-500 dark:text-stone-400 pb-1">
+                <span>История фраз ({transcriptHistory.length}):</span>
+                {transcriptHistory.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic();
+                      setTranscriptHistory([]);
+                    }}
+                    className="text-stone-400 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Очистить список</span>
+                  </button>
+                )}
+              </div>
+
+              {transcriptHistory.length === 0 ? (
+                <div className="text-center py-8 text-stone-400 dark:text-stone-600 text-xs space-y-2">
+                  <FileText className="w-8 h-8 mx-auto opacity-40" />
+                  <p>Пока нет расшифрованных фраз. Начните говорить!</p>
+                </div>
+              ) : (
+                transcriptHistory.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-2.5 rounded-xl bg-white dark:bg-stone-950 border border-stone-200 dark:border-stone-800 flex items-start justify-between gap-2 shadow-2xs group"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Clock className="w-3 h-3 text-amber-600" />
+                        <span className="text-[10px] font-mono text-stone-600 dark:text-stone-400 font-bold">
+                          {item.time}
+                        </span>
+                      </div>
+                      <p className="text-xs font-mono text-stone-900 dark:text-stone-100 select-text">
+                        {item.text}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic();
+                          insertTextAtCursor(`\n${item.text}`);
+                          setCopiedText('✓ Вставлено в тетрадь');
+                          setTimeout(() => setCopiedText(null), 1800);
+                        }}
+                        className="p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 cursor-pointer"
+                        title="Вставить эту фразу в тетрадь"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic();
+                          navigator.clipboard?.writeText(item.text);
+                          setCopiedText('✓ Скопировано!');
+                          setTimeout(() => setCopiedText(null), 1800);
+                        }}
+                        className="p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 cursor-pointer"
+                        title="Скопировать"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Modal Bottom Actions */}
+            <div className="p-3 bg-white/95 dark:bg-stone-950 border-t border-amber-900/10 dark:border-stone-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2">
+                {/* Toggle Record Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic(15);
+                    toggleListening();
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition active:scale-95 shadow cursor-pointer ${
+                    isListening
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                  <span>{isListening ? '⏹️ Стоп запись' : '🎙️ Начать запись'}</span>
+                </button>
+
+                {/* Copy All Transcript Button */}
+                {transcriptHistory.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic();
+                      const fullText = transcriptHistory.map((t) => t.text).join('\n');
+                      navigator.clipboard?.writeText(fullText);
+                      setCopiedText('✓ Вся расшифровка скопирована!');
+                      setTimeout(() => setCopiedText(null), 2000);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 text-xs font-semibold cursor-pointer transition active:scale-95"
+                    title="Скопировать весь текст расшифровки"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Копировать</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Insert into Note Button */}
+              {transcriptHistory.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic(15);
+                      const fullBlock = `\n\n🎙️ Расшифровка записи (${new Date().toLocaleDateString('ru-RU')} ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}):\n` +
+                        transcriptHistory.map((t) => `- ${t.text}`).join('\n');
+                      setContent((prev) => prev.trimEnd() + fullBlock);
+                      setCopiedText('✓ Расшифровка вставлена блоком в тетрадь!');
+                      setTimeout(() => setCopiedText(null), 2500);
+                      setShowVoiceModal(false);
+                    }}
+                    className="flex items-center gap-1 px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition active:scale-95 shadow cursor-pointer"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>Вставить в тетрадь</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Social Media Share Modal */}
       <ShareNoteModal

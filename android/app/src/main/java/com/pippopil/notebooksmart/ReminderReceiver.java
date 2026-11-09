@@ -6,11 +6,16 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioAttributes;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
 import androidx.core.app.NotificationCompat;
 
 public class ReminderReceiver extends BroadcastReceiver {
-    public static final String CHANNEL_ID = "notebook_reminders_channel";
+    public static final String CHANNEL_ID = "notebook_reminders_alarm_channel";
     public static final String EXTRA_ID = "reminder_id";
     public static final String EXTRA_TITLE = "reminder_title";
     public static final String EXTRA_BODY = "reminder_body";
@@ -27,24 +32,51 @@ public class ReminderReceiver extends BroadcastReceiver {
             title = "Напоминание в тетради 📓";
         }
 
+        // 1. Wake up device CPU and screen if locked or in Doze mode
+        PowerManager.WakeLock wakeLock = null;
+        try {
+            PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if (powerManager != null) {
+                wakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    "notebooksmart:alarm_receiver_wakelock"
+                );
+                wakeLock.acquire(10000); // Hold for 10s
+            }
+        } catch (Exception ignored) {}
+
         NotificationManager notificationManager =
             (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
 
         if (notificationManager == null) return;
 
-        // Create notification channel for Android 8.0+
+        // 2. Resolve default alarm sound (or notification chime)
+        Uri alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+        if (alarmSound == null) {
+            alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+        }
+
+        AudioAttributes audioAttributes = new AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .build();
+
+        // 3. Create high-priority alarm notification channel for Android 8.0+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            CharSequence name = "Напоминания NotebookSmart";
-            String description = "Точные уведомления о покупках, событиях и бюджете";
+            CharSequence name = "Будильник и напоминания NotebookSmart";
+            String description = "Громкие звуковые уведомления о покупках, событиях и бюджете";
             int importance = NotificationManager.IMPORTANCE_HIGH;
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID, name, importance);
             channel.setDescription(description);
             channel.enableVibration(true);
-            channel.setVibrationPattern(new long[]{0, 250, 150, 250});
+            channel.setVibrationPattern(new long[]{0, 500, 200, 500, 200, 700});
+            channel.setSound(alarmSound, audioAttributes);
+            channel.setLockscreenVisibility(android.app.Notification.VISIBILITY_PUBLIC);
+            channel.setBypassDnd(true);
             notificationManager.createNotificationChannel(channel);
         }
 
-        // Tap opens MainActivity
+        // 4. Intent to open the note in MainActivity
         Intent launchIntent = new Intent(context, MainActivity.class);
         launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         if (id != null) {
@@ -63,9 +95,13 @@ public class ReminderReceiver extends BroadcastReceiver {
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body != null && !body.isEmpty() ? body : "Пора заглянуть в тетрадь")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSound(alarmSound)
+            .setVibrate(new long[]{0, 500, 200, 500, 200, 700})
+            .setFullScreenIntent(pendingIntent, true)
             .setAutoCancel(true)
-            .setVibrate(new long[]{0, 250, 150, 250})
             .setContentIntent(pendingIntent);
 
         if ("shopping".equalsIgnoreCase(category)) {
@@ -77,5 +113,16 @@ public class ReminderReceiver extends BroadcastReceiver {
         }
 
         notificationManager.notify(requestCode, builder.build());
+
+        // 5. Play ringtone directly as an alarm chime
+        try {
+            Ringtone ringtone = RingtoneManager.getRingtone(context, alarmSound);
+            if (ringtone != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    ringtone.setAudioAttributes(audioAttributes);
+                }
+                ringtone.play();
+            }
+        } catch (Exception ignored) {}
     }
 }

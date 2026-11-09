@@ -5,7 +5,17 @@
 [![Build NotebookSmart Android & PWA](https://github.com/pippopil/NotebookSmart/actions/workflows/android-build.yml/badge.svg)](https://github.com/pippopil/NotebookSmart/actions/workflows/android-build.yml)
 [![Automatic GitHub Release](https://github.com/pippopil/NotebookSmart/actions/workflows/release.yml/badge.svg)](https://github.com/pippopil/NotebookSmart/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg)](LICENSE)
-[![Version: 1.9.7](https://img.shields.io/badge/version-1.9.7--build197-emerald.svg)](package.json)
+[![Version: 1.9.8](https://img.shields.io/badge/version-1.9.8--build198-emerald.svg)](package.json)
+
+---
+
+## 🚀 Что нового в версии 1.9.8
+- **Нативное распознавание речи Android (`SpeechRecognizer`)**: Голосовой ввод теперь работает прямо внутри мобильного APK благодаря прямому вызову системного сервиса `SpeechRecognizer` через Java-мост, обходя ограничения WebView. Добавлено системное разрешение `RECORD_AUDIO`.
+- **Окно расшифровки голосовой заметки («Расшифровка»)**: Полноценный интерфейс для диктовки с визуализацией звуковой волны, историей распознанных реплик с таймкодами, кнопками копирования и пакетной вставки в тетрадь в виде форматированного блока с датой.
+- **Устранение ложных свайпов назад при прокрутке меню**: При прокрутке верхнего меню стилей, нижней клавиатуры операторов и чипов быстрых напоминаний больше не происходит случайного возврата на главный экран.
+- **Звуковой будильник и напоминания при заблокированном телефоне**: В `ReminderReceiver` внедрен системный `WakeLock` (`ACQUIRE_CAUSES_WAKEUP`), включены звуковые атрибуты `AudioAttributes.USAGE_ALARM` и полноэкранный интент для гарантированного пробуждения экрана из режима глубокого сна (Doze mode).
+- **Интеллектуальная фильтрация чисел в калькуляторе**: Годы («2024 г.»), время («14:00»), адреса («дом 12, кв 45»), телефоны и обычные пункты дел со списками теперь надежно игнорируются математическим движком и не считаются ошибочно расходами.
+- **Чистое выделение цветом без HTML-кода**: Маркеры выделения текста теперь используют лаконичный синтаксис `==purple:текст==`, а новая кнопка «Очистить теги» в один клик удаляет устаревшие теги `<mark>` из существующих заметок.
 
 ---
 

@@ -25,6 +25,26 @@ export function useSwipeBack({
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
+
+      const target = e.target as HTMLElement | null;
+      // Do not trigger swipe-back if touching horizontal toolbars, scrollable menus, buttons or inputs
+      if (
+        target &&
+        (target.closest('.overflow-x-auto') ||
+          target.closest('[data-no-swipe]') ||
+          target.closest('.no-swipe') ||
+          target.closest('header') ||
+          target.closest('nav') ||
+          target.closest('footer') ||
+          target.closest('button') ||
+          target.closest('input') ||
+          target.closest('textarea') ||
+          target.closest('select'))
+      ) {
+        isSwiping.current = false;
+        return;
+      }
+
       touchStartX.current = e.touches[0].clientX;
       touchStartY.current = e.touches[0].clientY;
       isSwiping.current = true;
@@ -37,9 +57,8 @@ export function useSwipeBack({
       const deltaX = currentX - touchStartX.current;
       const deltaY = currentY - touchStartY.current;
 
-      // If user is predominantly swiping horizontally (especially right-to-left)
-      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 15) {
-        // Prevent default browser history or minimize gestures
+      // Only handle clear horizontal swipe from screen margin or outside menus
+      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 25) {
         if (e.cancelable) {
           e.preventDefault();
         }
@@ -54,12 +73,18 @@ export function useSwipeBack({
       const deltaX = currentX - touchStartX.current;
       const deltaY = currentY - touchStartY.current;
 
-      // Right-to-left swipe (deltaX < -threshold) or left-to-right swipe (deltaX > threshold)
-      // returns to main notes screen without minimizing app
-      const isHorizontalSwipe = Math.abs(deltaX) > threshold && Math.abs(deltaX) > Math.abs(deltaY) * 1.2;
-      const isRightToLeftSwipe = deltaX < -threshold;
+      // Only deliberate full-gesture swipes trigger back navigation:
+      // either swipe from left edge (deltaX > 60) or deliberate long swipe across background (deltaX > threshold)
+      const isDeliberateSwipe =
+        Math.abs(deltaX) > threshold &&
+        Math.abs(deltaX) > Math.abs(deltaY) * 1.6;
 
-      if (isHorizontalSwipe || (isRightToLeftSwipe && Math.abs(deltaX) > 45)) {
+      const isLeftEdgeSwipe =
+        touchStartX.current < 35 &&
+        deltaX > 60 &&
+        Math.abs(deltaX) > Math.abs(deltaY) * 1.5;
+
+      if (isDeliberateSwipe || isLeftEdgeSwipe) {
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
           navigator.vibrate(15);
         }

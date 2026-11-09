@@ -16,14 +16,21 @@ import androidx.biometric.BiometricPrompt;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentActivity;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.os.Bundle;
 import java.io.File;
 import java.io.FileWriter;
+import java.util.ArrayList;
 import java.util.concurrent.Executor;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class AndroidNativeBridge {
     private final Activity activity;
+    private SpeechRecognizer speechRecognizer = null;
+    private boolean isSpeechListening = false;
 
     public AndroidNativeBridge(Activity activity) {
         this.activity = activity;
@@ -386,5 +393,202 @@ public class AndroidNativeBridge {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /* =========================================================================
+     * STEP 6: Native Android SpeechRecognizer (Google Voice Typing Engine)
+     * ========================================================================= */
+
+    @JavascriptInterface
+    public boolean isNativeSpeechAvailable() {
+        try {
+            return SpeechRecognizer.isRecognitionAvailable(activity);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @JavascriptInterface
+    public boolean isSpeechActive() {
+        return isSpeechListening;
+    }
+
+    @JavascriptInterface
+    public void startNativeSpeechRecognition(final String lang) {
+        activity.runOnUiThread(() -> {
+            try {
+                if (!SpeechRecognizer.isRecognitionAvailable(activity)) {
+                    notifySpeechError("Голосовой ввод недоступен на этом устройстве");
+                    return;
+                }
+
+                if (speechRecognizer != null) {
+                    try {
+                        speechRecognizer.destroy();
+                    } catch (Exception ignored) {}
+                    speechRecognizer = null;
+                }
+
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(activity);
+                speechRecognizer.setRecognitionListener(new RecognitionListener() {
+                    @Override
+                    public void onReadyForSpeech(Bundle params) {
+                        isSpeechListening = true;
+                        notifySpeechState("ready");
+                    }
+
+                    @Override
+                    public void onBeginningOfSpeech() {
+                        notifySpeechState("start");
+                    }
+
+                    @Override
+                    public void onRmsChanged(float rmsdB) {}
+
+                    @Override
+                    public void onBufferReceived(byte[] buffer) {}
+
+                    @Override
+                    public void onEndOfSpeech() {
+                        isSpeechListening = false;
+                        notifySpeechState("end");
+                    }
+
+                    @Override
+                    public void onError(int error) {
+                        isSpeechListening = false;
+                        String errorMsg = "Ошибка микрофона (" + error + ")";
+                        switch (error) {
+                            case SpeechRecognizer.ERROR_AUDIO:
+                                errorMsg = "Ошибка записи аудио";
+                                break;
+                            case SpeechRecognizer.ERROR_CLIENT:
+                                errorMsg = "Клиентская ошибка распознавания";
+                                break;
+                            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
+                                errorMsg = "Нет разрешения на микрофон";
+                                break;
+                            case SpeechRecognizer.ERROR_NETWORK:
+                            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
+                                errorMsg = "Сетевая ошибка голосового сервиса";
+                                break;
+                            case SpeechRecognizer.ERROR_NO_MATCH:
+                                errorMsg = "Речь не распознана";
+                                break;
+                            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
+                                errorMsg = "Служба распознавания занята";
+                                break;
+                            case SpeechRecognizer.ERROR_SERVER:
+                                errorMsg = "Ошибка сервера распознавания речи";
+                                break;
+                            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
+                                errorMsg = "Не услышан голос";
+                                break;
+                        }
+                        notifySpeechError(errorMsg);
+                    }
+
+                    @Override
+                    public void onResults(Bundle results) {
+                        isSpeechListening = false;
+                        ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                        if (matches != null && !matches.isEmpty()) {
+                            String text = matches.get(0);
+                            notifySpeechResult(text, true);
+                        } else {
+                            notifySpeechState("end");
+                        }
+                    }
+
+                    @Override
+                    public void onPartialResults(Bundle partialResults) {
+                        ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                        if (matches != null && !matches.isEmpty()) {
+                            String text = matches.get(0);
+                            notifySpeechResult(text, false);
+                        }
+                    }
+
+                    @Override
+                    public void onEvent(int eventType, Bundle params) {}
+                });
+
+                Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, (lang != null && !lang.isEmpty()) ? lang : "ru-RU");
+                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU");
+                intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+                intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+                speechRecognizer.startListening(intent);
+            } catch (Exception e) {
+                notifySpeechError("Сбой микрофона: " + e.getMessage());
+            }
+        });
+    }
+
+    @JavascriptInterface
+    public void stopNativeSpeechRecognition() {
+        activity.runOnUiThread(() -> {
+            try {
+                if (speechRecognizer != null) {
+                    speechRecognizer.stopListening();
+                }
+            } catch (Exception ignored) {}
+            isSpeechListening = false;
+            notifySpeechState("end");
+        });
+    }
+
+    private void notifySpeechResult(final String text, final boolean isFinal) {
+        activity.runOnUiThread(() -> {
+            try {
+                if (activity instanceof MainActivity) {
+                    MainActivity ma = (MainActivity) activity;
+                    if (ma.getBridge() != null && ma.getBridge().getWebView() != null) {
+                        WebView wv = ma.getBridge().getWebView();
+                        String safeText = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "");
+                        wv.evaluateJavascript(
+                            "if (window.onNativeSpeechResult) { window.onNativeSpeechResult('" + safeText + "', " + isFinal + "); }",
+                            null
+                        );
+                    }
+                }
+            } catch (Exception ignored) {}
+        });
+    }
+
+    private void notifySpeechError(final String errorMsg) {
+        activity.runOnUiThread(() -> {
+            try {
+                if (activity instanceof MainActivity) {
+                    MainActivity ma = (MainActivity) activity;
+                    if (ma.getBridge() != null && ma.getBridge().getWebView() != null) {
+                        WebView wv = ma.getBridge().getWebView();
+                        String safeError = errorMsg.replace("'", "\\'");
+                        wv.evaluateJavascript(
+                            "if (window.onNativeSpeechError) { window.onNativeSpeechError('" + safeError + "'); }",
+                            null
+                        );
+                    }
+                }
+            } catch (Exception ignored) {}
+        });
+    }
+
+    private void notifySpeechState(final String state) {
+        activity.runOnUiThread(() -> {
+            try {
+                if (activity instanceof MainActivity) {
+                    MainActivity ma = (MainActivity) activity;
+                    if (ma.getBridge() != null && ma.getBridge().getWebView() != null) {
+                        WebView wv = ma.getBridge().getWebView();
+                        wv.evaluateJavascript(
+                            "if (window.onNativeSpeechState) { window.onNativeSpeechState('" + state + "'); }",
+                            null
+                        );
+                    }
+                }
+            } catch (Exception ignored) {}
+        });
     }
 }

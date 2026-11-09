@@ -122,6 +122,10 @@ public class MainActivity extends BridgeActivity {
                 permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION);
             }
 
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.RECORD_AUDIO);
+            }
+
             // Android 13+ Notification permission
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -149,6 +153,7 @@ public class MainActivity extends BridgeActivity {
                 settings.setGeolocationEnabled(true);
                 settings.setJavaScriptCanOpenWindowsAutomatically(true);
                 settings.setDomStorageEnabled(true);
+                settings.setMediaPlaybackRequiresUserGesture(false);
 
                 // Register Enhanced Hybrid JavaScript Bridge
                 webView.addJavascriptInterface(new AndroidNativeBridge(this), "AndroidNative");
@@ -158,6 +163,15 @@ public class MainActivity extends BridgeActivity {
                     public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
                         requestPermissionsIfNeeded();
                         callback.invoke(origin, true, false);
+                    }
+
+                    @Override
+                    public void onPermissionRequest(final android.webkit.PermissionRequest request) {
+                        runOnUiThread(() -> {
+                            try {
+                                request.grant(request.getResources());
+                            } catch (Exception ignored) {}
+                        });
                     }
                 });
 

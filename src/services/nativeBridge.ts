@@ -33,13 +33,57 @@ declare global {
       listNativeBackupFiles?: () => string;
       readNativeBackupFile?: (fileName: string) => string | null;
       deleteNativeBackupFile?: (fileName: string) => boolean;
+
+      // Step 6: Native Android SpeechRecognizer (Google Voice Typing)
+      isNativeSpeechAvailable?: () => boolean;
+      isSpeechActive?: () => boolean;
+      startNativeSpeechRecognition?: (lang: string) => void;
+      stopNativeSpeechRecognition?: () => void;
     };
 
     // System event callbacks invoked by native Android
     onNativeBiometricResult?: (success: boolean, error: string) => void;
     onNativeSharedContent?: (title: string, text: string) => void;
     onNativeAction?: (action: string) => void;
+    onNativeSpeechResult?: (text: string, isFinal: boolean) => void;
+    onNativeSpeechError?: (errorMsg: string) => void;
+    onNativeSpeechState?: (state: string) => void;
   }
+}
+
+/**
+ * Returns true if native Android SpeechRecognizer is available on device
+ */
+export function isNativeSpeechSupported(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.AndroidNative && typeof window.AndroidNative.isNativeSpeechAvailable === 'function') {
+    return window.AndroidNative.isNativeSpeechAvailable();
+  }
+  return false;
+}
+
+/**
+ * Starts native Android speech recognition
+ */
+export function startNativeSpeech(lang: string = 'ru-RU'): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.AndroidNative && typeof window.AndroidNative.startNativeSpeechRecognition === 'function') {
+    window.AndroidNative.startNativeSpeechRecognition(lang);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Stops native Android speech recognition
+ */
+export function stopNativeSpeech(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.AndroidNative && typeof window.AndroidNative.stopNativeSpeechRecognition === 'function') {
+    window.AndroidNative.stopNativeSpeechRecognition();
+    return true;
+  }
+  return false;
 }
 
 /**
