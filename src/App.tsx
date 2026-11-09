@@ -426,7 +426,9 @@ export default function App() {
         } else if (activeCategoryFilter === 'event') {
           if (n.category !== 'event') return false;
         } else if (activeCategoryFilter === 'payment') {
-          if (n.category !== 'payment' && (n.cachedTotal || 0) === 0) return false;
+          if (n.category !== 'payment' && n.category !== 'budget') return false;
+        } else if (activeCategoryFilter === 'calculation') {
+          if (n.category !== 'calculation') return false;
         } else if (n.category !== activeCategoryFilter) {
           return false;
         }
@@ -788,10 +790,11 @@ export default function App() {
               <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto pb-1 scrollbar-none scroll-smooth">
                 {[
                   { id: 'all', label: 'Все записи', shortLabel: 'Все', icon: '📋' },
-                  { id: 'note', label: 'Заметки', shortLabel: 'Заметки', icon: '📝' },
+                  { id: 'note', label: 'Заметки (без счёта)', shortLabel: 'Заметки', icon: '📝' },
+                  { id: 'payment', label: 'Финансы (деньги ₽)', shortLabel: 'Финансы', icon: '💰' },
+                  { id: 'calculation', label: 'Расчёт (штуки/счёт)', shortLabel: 'Расчёт', icon: '🧮' },
                   { id: 'shopping', label: 'Покупки', shortLabel: 'Покупки', icon: '🛒' },
                   { id: 'event', label: 'События', shortLabel: 'События', icon: '📅' },
-                  { id: 'payment', label: 'Финансы', shortLabel: 'Финансы', icon: '💰' },
                   { id: 'archive', label: 'Архив', shortLabel: 'Архив', icon: '📦' },
                 ].map((c) => (
                   <button
@@ -869,6 +872,20 @@ export default function App() {
                   >
                     <Plus className="w-4 h-4" />
                     <span>Просто заметка</span>
+                  </button>
+                  <button
+                    onClick={() => handleCreateNewNote('payment')}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-md transition active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Финансы (деньги)</span>
+                  </button>
+                  <button
+                    onClick={() => handleCreateNewNote('calculation')}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold shadow-md transition active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Расчёт (штуки/счёт)</span>
                   </button>
                   <button
                     onClick={() => handleCreateNewNote('shopping')}

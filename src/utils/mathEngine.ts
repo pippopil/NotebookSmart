@@ -1,4 +1,4 @@
-import { LineCalculation, NoteCalculationSummary } from '../types';
+import { LineCalculation, NoteCalculationSummary, NoteCategory } from '../types';
 
 /**
  * Normalizes numbers with thousands separators and comma decimals:
@@ -308,11 +308,16 @@ export function isNonFinancialNumberLine(rawText: string): boolean {
 
 /**
  * Analyzes a single line of note text.
- * Determines if it contains a payment or arithmetic calculation.
+ * - 'payment' mode: calculates strictly money (₽, $, €), revenue (+), expenses (-).
+ * - 'calculation' mode: calculates non-monetary items, quantities (pieces, dimensions, general arithmetic).
  */
-export function analyzeLine(rawText: string, lineNumber: number): LineCalculation {
+export function analyzeLine(
+  rawText: string,
+  lineNumber: number,
+  mode: 'payment' | 'calculation' = 'payment'
+): LineCalculation {
   const trimmed = rawText.trim();
-  const defaultCurrency = detectCurrency(trimmed);
+  const defaultCurrency = mode === 'payment' ? detectCurrency(trimmed) : '';
 
   if (!trimmed) {
     return {
@@ -324,6 +329,7 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
       label: '',
       isTotalLine: false,
       type: 'neutral',
+      isPieceCalculation: false,
     };
   }
 
@@ -331,19 +337,43 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
     trimmed
   );
 
-  // If this line contains non-financial numbers (dates, years, phones, addresses, bullet lists),
-  // skip arithmetic calculation completely!
-  if (!isTotalLine && isNonFinancialNumberLine(trimmed)) {
-    return {
-      lineNumber,
-      rawText,
-      expression: null,
-      result: null,
-      currency: defaultCurrency,
-      label: trimmed,
-      isTotalLine: false,
-      type: 'neutral',
-    };
+  // In PAYMENT mode: reject non-financial lines (years, phones, addresses, non-monetary bullet lists)
+  if (mode === 'payment') {
+    if (!isTotalLine && isNonFinancialNumberLine(trimmed)) {
+      return {
+        lineNumber,
+        rawText,
+        expression: null,
+        result: null,
+        currency: defaultCurrency,
+        label: trimmed,
+        isTotalLine: false,
+        type: 'neutral',
+        isPieceCalculation: false,
+      };
+    }
+  } else {
+    // In CALCULATION mode (all arithmetic except money):
+    // Only calculate if the line has explicit math signals (operator +, -, *, /, %, piece units шт, or equation =)
+    if (!isTotalLine) {
+      const hasMathSignal =
+        /[+*\/%]|(?:\d+\s*-\s*\d+)|(?:[:=]\s*\d+)|\b(?:шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs|items?)\b/i.test(
+          trimmed
+        );
+      if (!hasMathSignal) {
+        return {
+          lineNumber,
+          rawText,
+          expression: null,
+          result: null,
+          currency: '',
+          label: trimmed,
+          isTotalLine: false,
+          type: 'neutral',
+          isPieceCalculation: false,
+        };
+      }
+    }
   }
 
   // 1. Normalize Russian multipliers (3-х тысяч, 3 тыс, 3 тысячи, 3к)
@@ -367,9 +397,9 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
     potentialExpr = normalized.substring(eqIdx + 1).trim();
   } else {
     // Check if line has words followed by math
-    // e.g. "Кофе 250 * 2" or "Бензин 2500" or "Аренда 3000"
+    // e.g. "Кофе 250 * 2" or "Плитка 40 * 3"
     const match = normalized.match(
-      /^(.*?)([\d\s+\-*/%().xX×÷]+(?:руб(?:лей|ля|\.?)|р\.?|rub|\$|€|₽|тенге)?)$/i
+      /^(.*?)([\d\s+\-*/%().xX×÷]+(?:руб(?:лей|ля|\.?)|р\.?|rub|\$|€|₽|тенге|шт(?:\.|\b)|штук[а-я]*)?)$/i
     );
     if (match && match[1] && match[2] && /\d/.test(match[2])) {
       label = match[1].trim();
@@ -397,24 +427,29 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
       let lineType: 'income' | 'expense' | 'total' | 'neutral' = 'neutral';
       if (isTotalLine) {
         lineType = 'total';
-      } else if (
-        trimmed.startsWith('+') ||
-        /\b(?:прибыль|доход(?:ы)?|зарплат(?:а|ы)?|преми(?:я|и)|аванс|кешбэк|выручк(?:а|и)|получен(?:о|ы)|плюс)\b/i.test(trimmed)
-      ) {
-        lineType = 'income';
-      } else if (
-        trimmed.startsWith('-') ||
-        /\b(?:расход(?:ы)?|трат(?:ы|а)|минус|покупк(?:а|и)|оплат(?:а|ы)|аренд(?:а|ы)|коммуналк(?:а|и))\b/i.test(trimmed)
-      ) {
-        lineType = 'expense';
+      } else if (mode === 'payment') {
+        if (
+          trimmed.startsWith('+') ||
+          /\b(?:прибыль|доход(?:ы)?|зарплат(?:а|ы)?|преми(?:я|и)|аванс|кешбэк|выручк(?:а|и)|получен(?:о|ы)|плюс)\b/i.test(trimmed)
+        ) {
+          lineType = 'income';
+        } else if (
+          trimmed.startsWith('-') ||
+          /\b(?:расход(?:ы)?|трат(?:ы|а)|минус|покупк(?:а|и)|оплат(?:а|ы)|аренд(?:а|ы)|коммуналк(?:а|и))\b/i.test(trimmed)
+        ) {
+          lineType = 'expense';
+        }
       }
+
+      const assignedCurrency =
+        isPiecesLine ? 'шт.' : mode === 'payment' ? defaultCurrency : '';
 
       return {
         lineNumber,
         rawText,
         expression: cleanExpr,
         result,
-        currency: isPiecesLine ? 'шт.' : defaultCurrency,
+        currency: assignedCurrency,
         label,
         isTotalLine,
         type: lineType,
@@ -432,18 +467,57 @@ export function analyzeLine(rawText: string, lineNumber: number): LineCalculatio
     label,
     isTotalLine,
     type: isTotalLine ? 'total' : 'neutral',
+    isPieceCalculation: false,
   };
 }
 
 /**
- * Analyzes whole note text line-by-line and calculates grand total and currency breakdowns.
+ * Analyzes whole note text line-by-line according to its category:
+ * - 'note' / 'general': ZERO calculations (clean note, thought, address, contacts).
+ * - 'payment': Strictly financial calculations (money in ₽, $, € with income, expenses, balance).
+ * - 'calculation': Strictly non-financial arithmetic & quantities (pieces, dimensions, items).
  */
-export function analyzeNote(content: string): NoteCalculationSummary {
+export function analyzeNote(
+  content: string,
+  category: NoteCategory = 'payment'
+): NoteCalculationSummary {
   const rawLines = content.split('\n');
+
+  // MODE 1: 'note' / 'general' -> Absolutely NO calculations!
+  if (category === 'note' || category === 'general') {
+    const emptyLines: LineCalculation[] = rawLines.map((rawText, idx) => ({
+      lineNumber: idx + 1,
+      rawText,
+      expression: null,
+      result: null,
+      currency: '',
+      label: '',
+      isTotalLine: false,
+      type: 'neutral',
+      isPieceCalculation: false,
+    }));
+
+    return {
+      lines: emptyLines,
+      grandTotal: 0,
+      totalIncome: 0,
+      totalExpenses: 0,
+      netBalance: 0,
+      hasIncomeExpenseSplit: false,
+      savingsRatePercent: 0,
+      currency: '',
+      totalCalculatedLines: 0,
+      breakdownByCurrency: {},
+      totalPieces: 0,
+      hasPiecesCalculation: false,
+    };
+  }
+
+  const calcMode = category === 'calculation' ? 'calculation' : 'payment';
   const lines: LineCalculation[] = [];
   const breakdownByCurrency: Record<string, number> = {};
   let totalCalculatedLines = 0;
-  let primaryCurrency = '₽';
+  let primaryCurrency = calcMode === 'payment' ? '₽' : '';
   let runningSubtotal = 0;
   let totalIncome = 0;
   let totalExpenses = 0;
@@ -452,7 +526,7 @@ export function analyzeNote(content: string): NoteCalculationSummary {
 
   for (let idx = 0; idx < rawLines.length; idx++) {
     const rawLine = rawLines[idx];
-    const parsed = analyzeLine(rawLine, idx + 1);
+    const parsed = analyzeLine(rawLine, idx + 1, calcMode);
 
     if (parsed.isTotalLine) {
       let totalSoFar: number;
@@ -477,7 +551,7 @@ export function analyzeNote(content: string): NoteCalculationSummary {
         } else {
           const curr = parsed.currency;
           breakdownByCurrency[curr] = (breakdownByCurrency[curr] || 0) + parsed.result;
-          primaryCurrency = curr;
+          if (curr) primaryCurrency = curr;
           runningSubtotal += parsed.result;
 
           if (parsed.type === 'income') {
@@ -494,16 +568,28 @@ export function analyzeNote(content: string): NoteCalculationSummary {
   let finalGrandTotal = breakdownByCurrency[primaryCurrency] || runningSubtotal || 0;
   let finalCurrency = primaryCurrency;
 
-  // If note only has piece calculations (or predominantly pieces and no monetary totals), set unit to "шт."
-  if (finalGrandTotal === 0 && totalPieces > 0) {
-    finalGrandTotal = totalPieces;
-    finalCurrency = 'шт.';
+  // In calculation mode: if pieces were predominantly counted, unit is 'шт.', otherwise empty (pure count)
+  if (calcMode === 'calculation') {
+    if (totalPieces > 0 && finalGrandTotal === 0) {
+      finalGrandTotal = totalPieces;
+      finalCurrency = 'шт.';
+    } else if (hasPieces) {
+      finalCurrency = 'шт.';
+    } else {
+      finalCurrency = '';
+    }
+  } else {
+    // In payment mode: if only pieces were entered, unit is 'шт.'
+    if (finalGrandTotal === 0 && totalPieces > 0) {
+      finalGrandTotal = totalPieces;
+      finalCurrency = 'шт.';
+    }
   }
 
-  const hasIncomeExpenseSplit = totalIncome > 0 && totalExpenses > 0;
+  const hasIncomeExpenseSplit = calcMode === 'payment' && totalIncome > 0 && totalExpenses > 0;
   const netBalance = totalIncome - totalExpenses;
   const savingsRatePercent =
-    totalIncome > 0
+    calcMode === 'payment' && totalIncome > 0
       ? Math.max(0, Math.round(((totalIncome - totalExpenses) / totalIncome) * 100))
       : 0;
 
@@ -525,7 +611,7 @@ export function analyzeNote(content: string): NoteCalculationSummary {
 
 /**
  * Format currency with thousands spaces
- * e.g. 35000 -> "35 000 ₽", 3000 -> "3 000 ₽", 15 -> "15 шт."
+ * e.g. 35000 -> "35 000 ₽", 3000 -> "3 000 ₽", 15 -> "15 шт.", pure number -> "15"
  */
 export function formatMoney(amount: number, currency = '₽'): string {
   const rounded = Math.round(amount * 100) / 100;
@@ -533,6 +619,9 @@ export function formatMoney(amount: number, currency = '₽'): string {
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
   const formattedNum = parts.join('.');
 
+  if (!currency || currency === 'calc' || currency === 'none') {
+    return formattedNum;
+  }
   if (currency === '$') return `$${formattedNum}`;
   if (currency === '€') return `€${formattedNum}`;
   if (currency === 'шт.' || currency === 'шт') return `${formattedNum} шт.`;

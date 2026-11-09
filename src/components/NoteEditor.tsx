@@ -305,8 +305,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Auto-analysis of math and shopping
-  const mathSummary = useMemo(() => analyzeNote(content), [content]);
+  // Auto-analysis of math and shopping strictly according to note category
+  const mathSummary = useMemo(() => analyzeNote(content, category), [content, category]);
   const shoppingItems = useMemo(() => extractShoppingItems(content), [content]);
 
   // Synchronize state changes back to parent
@@ -615,9 +615,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   // Insert grand total into text
   const handleInsertGrandTotal = () => {
     triggerHaptic();
-    const label = mathSummary.hasIncomeExpenseSplit
-      ? 'Остаток в итоге:'
-      : 'Итого к оплате:';
+    let label = 'Итого:';
+    if (category === 'payment') {
+      label = mathSummary.hasIncomeExpenseSplit ? 'Остаток в итоге:' : 'Итого к оплате:';
+    } else if (category === 'calculation') {
+      label = mathSummary.currency === 'шт.' ? 'Итого количество:' : 'Итого результат:';
+    }
     const totalStr = `\n\n${label} ${formatMoney(mathSummary.grandTotal, mathSummary.currency)}`;
     setContent((prev) => prev + totalStr);
   };
@@ -801,18 +804,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         <div className="px-3 sm:px-4 py-1.5 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-2 shrink-0 text-xs">
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none min-w-0">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-900 dark:text-amber-300 font-bold text-[11px] shrink-0">
-              {category === 'payment' && <Calculator className="w-3 h-3 text-amber-600" />}
+              {category === 'payment' && <Wallet className="w-3 h-3 text-amber-600" />}
+              {category === 'calculation' && <Calculator className="w-3 h-3 text-teal-600" />}
               {category === 'shopping' && <ShoppingCart className="w-3 h-3 text-emerald-600" />}
               {category === 'event' && <Calendar className="w-3 h-3 text-purple-600" />}
               {category === 'note' && <FileText className="w-3 h-3 text-blue-600" />}
               <span>
                 {category === 'payment'
-                  ? 'Финансы'
+                  ? 'Финансы (деньги ₽)'
+                  : category === 'calculation'
+                  ? 'Расчёт (штуки/счет)'
                   : category === 'shopping'
                   ? 'Покупки'
                   : category === 'event'
                   ? 'События'
-                  : 'Заметка'}
+                  : 'Заметка (без расчетов)'}
               </span>
             </span>
             {tags.slice(0, 3).map((t) => (
@@ -840,10 +846,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         <div className="px-3 sm:px-4 py-2 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5" data-no-swipe="true">
           {[
-            { id: 'note', label: 'Заметка', icon: FileText, activeClass: 'bg-blue-600 text-white' },
-            { id: 'payment', label: 'Финансы', icon: Calculator, activeClass: 'bg-amber-600 text-white' },
-            { id: 'shopping', label: 'Покупки', icon: ShoppingCart, activeClass: 'bg-emerald-600 text-white' },
-            { id: 'event', label: 'События', icon: Calendar, activeClass: 'bg-purple-600 text-white' },
+            { id: 'note', label: 'Заметка', icon: FileText, activeClass: 'bg-blue-600 text-white', tip: 'Без расчетов' },
+            { id: 'payment', label: 'Финансы', icon: Wallet, activeClass: 'bg-amber-600 text-white', tip: 'Расчеты в деньгах (₽)' },
+            { id: 'calculation', label: 'Расчёт', icon: Calculator, activeClass: 'bg-teal-600 text-white', tip: 'Счет всего кроме денег (штуки, арифметика)' },
+            { id: 'shopping', label: 'Покупки', icon: ShoppingCart, activeClass: 'bg-emerald-600 text-white', tip: 'Список товаров' },
+            { id: 'event', label: 'События', icon: Calendar, activeClass: 'bg-purple-600 text-white', tip: 'Планы и встречи' },
           ].map((cat) => {
             const Icon = cat.icon;
             const isSelected = category === cat.id || (cat.id === 'note' && category === 'general');
@@ -859,6 +866,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     ? `${cat.activeClass} shadow-xs`
                     : 'bg-stone-200/80 dark:bg-stone-800/80 text-stone-700 dark:text-stone-300 hover:bg-stone-300/80 dark:hover:bg-stone-700'
                 }`}
+                title={cat.tip}
               >
                 <Icon className="w-3 h-3 shrink-0" />
                 <span>{cat.label}</span>
@@ -1168,8 +1176,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               : category === 'shopping'
               ? 'Список покупок в тетрадке...'
               : category === 'payment'
-              ? 'Учет доходов, расходов и баланса...'
-              : 'Заголовок страницы тетради...'
+              ? 'Учет доходов, расходов и баланса (в деньгах ₽)...'
+              : category === 'calculation'
+              ? 'Расчет количества, штук, материалов (без денег)...'
+              : 'Заголовок заметки (без расчетов)...'
           }
           className={`w-full bg-transparent font-bold text-stone-900 dark:text-white placeholder-stone-500/70 dark:placeholder-stone-400 focus:outline-none font-mono ${
             shouldLiftCard ? 'text-sm sm:text-base' : 'text-base sm:text-lg'
@@ -1279,8 +1289,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       </div>
       )}
 
-      {/* FINANCIAL BREAKDOWN PANEL: ПРИБЫЛЬ vs РАСХОДЫ vs ОСТАТОК */}
-      {(mathSummary.hasIncomeExpenseSplit || category === 'payment') && (
+      {/* FINANCIAL BREAKDOWN PANEL: ПРИБЫЛЬ vs РАСХОДЫ vs ОСТАТОК (Только для категории Финансы) */}
+      {category === 'payment' && (
         shouldLiftCard ? (
           /* COMPACT LIFTED STRIP: Gives maximum vertical space to notebook */
           <div className="mx-2.5 sm:mx-3 mt-1.5 px-3 py-1.5 bg-white/95 dark:bg-stone-900/90 border border-amber-900/15 dark:border-stone-800 rounded-xl shadow-2xs flex items-center justify-between gap-1.5 text-xs shrink-0 transition-all">
@@ -1924,16 +1934,28 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                             ? 'bg-amber-100 hover:bg-amber-200 border-amber-400 text-amber-950 dark:bg-amber-600/40 dark:text-amber-200'
                             : line.type === 'income'
                             ? 'bg-emerald-100 hover:bg-emerald-200 border-emerald-400 text-emerald-950 dark:bg-emerald-900/50 dark:text-emerald-200'
-                            : 'bg-rose-50 hover:bg-rose-100 border-rose-300 text-rose-950 dark:bg-rose-950/60 dark:text-rose-200'
+                            : line.type === 'expense'
+                            ? 'bg-rose-50 hover:bg-rose-100 border-rose-300 text-rose-950 dark:bg-rose-950/60 dark:text-rose-200'
+                            : 'bg-teal-50 hover:bg-teal-100 border-teal-300 text-teal-950 dark:bg-teal-950/50 dark:text-teal-200'
                         }`}
-                        title={line.isTotalLine ? 'Итоговая строка' : `Тип: ${line.type === 'income' ? 'Прибыль' : 'Расход'}`}
+                        title={
+                          line.isTotalLine
+                            ? 'Итоговая строка'
+                            : line.type === 'income'
+                            ? 'Прибыль'
+                            : line.type === 'expense'
+                            ? 'Расход'
+                            : 'Результат расчета'
+                        }
                       >
                         <span>
                           {line.isTotalLine
                             ? `= ${formatMoney(line.result, line.currency)}`
                             : line.type === 'income'
                             ? `+${formatMoney(line.result, line.currency)}`
-                            : `−${formatMoney(line.result, line.currency)}`}
+                            : line.type === 'expense'
+                            ? `−${formatMoney(line.result, line.currency)}`
+                            : `= ${formatMoney(line.result, line.currency)}`}
                         </span>
                         <Copy className="w-2.5 h-2.5 opacity-0 group-hover/res:opacity-100 transition" />
                       </button>
@@ -1956,34 +1978,52 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
-      {/* Floating Cashflow / Grand Total Bar (Supports money ₽ and pieces шт.) */}
-      {(mathSummary.totalCalculatedLines > 0 || (mathSummary.totalPieces || 0) > 0) && !shouldLiftCard && (
+      {/* Floating Cashflow / Grand Total Bar (Visible only for payment, calculation, and shopping when calculated) */}
+      {category !== 'note' && category !== 'general' && (mathSummary.totalCalculatedLines > 0 || (mathSummary.totalPieces || 0) > 0) && !shouldLiftCard && (
         <div className="mx-3 sm:mx-4 mb-2 bg-white/95 dark:bg-stone-900/95 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md transition-all">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
-              <Wallet className="w-4 h-4" />
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+              category === 'calculation'
+                ? 'bg-teal-500/15 text-teal-700 dark:text-teal-400'
+                : 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
+            }`}>
+              {category === 'calculation' ? <Calculator className="w-4 h-4" /> : <Wallet className="w-4 h-4" />}
             </div>
             <div>
               <span className="text-[11px] text-stone-600 dark:text-stone-400 uppercase font-bold tracking-wide">
-                {mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
-                  ? 'Итого количество:'
-                  : mathSummary.hasIncomeExpenseSplit
-                  ? 'Остаток в итоге:'
-                  : 'Итого к оплате:'}
+                {category === 'calculation'
+                  ? (mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
+                      ? 'Итого количество:'
+                      : 'Итого результат:')
+                  : (mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
+                      ? 'Итого количество:'
+                      : mathSummary.hasIncomeExpenseSplit
+                      ? 'Остаток в итоге:'
+                      : 'Итого к оплате:')}
               </span>
               <div className="text-base sm:text-lg font-bold text-stone-900 dark:text-white font-mono leading-none">
-                {mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
-                  ? `${mathSummary.totalPieces || 0} шт.`
-                  : (mathSummary.totalPieces || 0) > 0
-                  ? `${formatMoney(mathSummary.grandTotal, mathSummary.currency)} | ${mathSummary.totalPieces} шт.`
-                  : formatMoney(mathSummary.grandTotal, mathSummary.currency)}
+                {category === 'calculation'
+                  ? (mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
+                      ? `${mathSummary.totalPieces || 0} шт.`
+                      : (mathSummary.totalPieces || 0) > 0
+                      ? `${formatMoney(mathSummary.grandTotal, '')} (${mathSummary.totalPieces} шт.)`
+                      : `= ${formatMoney(mathSummary.grandTotal, '')}`)
+                  : (mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
+                      ? `${mathSummary.totalPieces || 0} шт.`
+                      : (mathSummary.totalPieces || 0) > 0
+                      ? `${formatMoney(mathSummary.grandTotal, mathSummary.currency)} | ${mathSummary.totalPieces} шт.`
+                      : formatMoney(mathSummary.grandTotal, mathSummary.currency))}
               </div>
             </div>
           </div>
 
           <button
             onClick={handleInsertGrandTotal}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition active:scale-95 shadow cursor-pointer shrink-0"
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-white font-bold text-xs transition active:scale-95 shadow cursor-pointer shrink-0 ${
+              category === 'calculation'
+                ? 'bg-teal-600 hover:bg-teal-500'
+                : 'bg-amber-600 hover:bg-amber-500'
+            }`}
           >
             <PlusCircle className="w-3.5 h-3.5" />
             <span>Вставить в тетрадь</span>
@@ -2033,23 +2073,47 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           <span>Расшифровка</span>
         </button>
 
-        {[
-          { label: '🟢 + Доход', insert: '\n+ Зарплата: 50 000 руб' },
-          { label: '🔴 - Расход', insert: '\n- Трата: 2 500 руб' },
-          { label: '💰 Остаток:', insert: '\n\nОстаток в итоге: ' },
-          { label: '+', insert: ' + ' },
-          { label: '-', insert: ' - ' },
-          { label: '×', insert: ' * ' },
-          { label: '÷', insert: ' / ' },
-          { label: '%', insert: '%' },
-          { label: '-10%', insert: ' - 10%' },
-          { label: '₽', insert: ' руб' },
-          { label: '📦 шт.', insert: ' шт' },
-          { label: 'к', insert: 'к' },
-          { label: '- [ ] Чекбокс', insert: '\n- [ ] ' },
-          { label: '• Список', insert: '\n• ' },
-          { label: '⏰ Время', insert: ` ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} ` },
-        ].map((btn, idx) => (
+        {(category === 'payment'
+          ? [
+              { label: '🟢 + Доход', insert: '\n+ Зарплата: 50 000 руб' },
+              { label: '🔴 - Расход', insert: '\n- Трата: 2 500 руб' },
+              { label: '💰 Баланс:', insert: '\n\nОстаток в итоге: ' },
+              { label: '₽', insert: ' руб' },
+              { label: '+', insert: ' + ' },
+              { label: '-', insert: ' - ' },
+              { label: '%', insert: '%' },
+              { label: '-10%', insert: ' - 10%' },
+              { label: 'к (1000)', insert: 'к' },
+              { label: '• Список', insert: '\n• ' },
+              { label: '⏰ Время', insert: ` ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} ` },
+            ]
+          : category === 'calculation'
+          ? [
+              { label: '+', insert: ' + ' },
+              { label: '-', insert: ' - ' },
+              { label: '×', insert: ' * ' },
+              { label: '÷', insert: ' / ' },
+              { label: '=', insert: ' = ' },
+              { label: '%', insert: '%' },
+              { label: '📦 шт.', insert: ' шт' },
+              { label: 'м', insert: ' м' },
+              { label: 'кг', insert: ' кг' },
+              { label: 'л', insert: ' л' },
+              { label: 'к', insert: 'к' },
+              { label: '🧮 Итого:', insert: '\n\nИтого результат: ' },
+              { label: '• Список', insert: '\n• ' },
+              { label: '⏰ Время', insert: ` ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} ` },
+            ]
+          : [
+              { label: '- [ ] Чекбокс', insert: '\n- [ ] ' },
+              { label: '• Список', insert: '\n• ' },
+              { label: '1. Пункт', insert: '\n1. ' },
+              { label: '⏰ Время', insert: ` ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} ` },
+              { label: '« Цитата »', insert: '\n> ' },
+              { label: '⭐ Важно', insert: ' ⭐ ' },
+              { label: '📌 Заметка', insert: ' 📌 ' },
+            ]
+        ).map((btn, idx) => (
           <button
             key={idx}
             onClick={() => insertTextAtCursor(btn.insert)}

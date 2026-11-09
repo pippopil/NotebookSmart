@@ -1,4 +1,4 @@
-export type NoteCategory = 'note' | 'shopping' | 'event' | 'payment' | 'general' | 'budget';
+export type NoteCategory = 'note' | 'shopping' | 'event' | 'payment' | 'general' | 'budget' | 'calculation';
 
 export type PaperStyleType = 'grid' | 'dark-grid' | 'lines' | 'plain' | 'kraft' | 'dots';
 

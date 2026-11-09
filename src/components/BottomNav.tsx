@@ -70,27 +70,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
             <button
               onClick={() => handleCreateCategory('note')}
-              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-amber-50/60 hover:bg-amber-100/70 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-amber-200/60 dark:border-stone-700/60 text-left transition active:scale-98"
+              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-blue-50/60 hover:bg-blue-100/70 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-blue-200/60 dark:border-stone-700/60 text-left transition active:scale-98"
             >
               <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
                 <FileText className="w-5 h-5" />
               </div>
               <div>
                 <span className="text-sm font-bold text-stone-900 dark:text-white block">Просто заметка</span>
-                <span className="text-[11px] text-stone-500 dark:text-stone-400">Мысли, текст и расчет оплат</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => handleCreateCategory('shopping')}
-              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-emerald-50/60 hover:bg-emerald-100/70 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-emerald-200/60 dark:border-stone-700/60 text-left transition active:scale-98"
-            >
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                <ShoppingCart className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-sm font-bold text-stone-900 dark:text-white block">Список покупок</span>
-                <span className="text-[11px] text-stone-500 dark:text-stone-400">Товары, магазины и корзина</span>
+                <span className="text-[11px] text-stone-500 dark:text-stone-400">Текст, мысли, списки (без расчетов)</span>
               </div>
             </button>
 
@@ -102,8 +89,21 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 <Calculator className="w-5 h-5" />
               </div>
               <div>
-                <span className="text-sm font-bold text-stone-900 dark:text-white block">Финансы & Бюджет</span>
-                <span className="text-[11px] text-stone-600 dark:text-stone-400">Прибыль, расходы и остаток</span>
+                <span className="text-sm font-bold text-stone-900 dark:text-white block">Финансы (в деньгах)</span>
+                <span className="text-[11px] text-stone-600 dark:text-stone-400">Прибыль, траты и баланс (в рублях ₽)</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => handleCreateCategory('calculation')}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-teal-50/70 hover:bg-teal-100/80 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-teal-300/70 dark:border-stone-700/60 text-left transition active:scale-98"
+            >
+              <div className="w-10 h-10 rounded-xl bg-teal-500/15 text-teal-700 dark:text-teal-400 flex items-center justify-center shrink-0">
+                <Calculator className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-sm font-bold text-stone-900 dark:text-white block">Расчёт & Количество</span>
+                <span className="text-[11px] text-stone-600 dark:text-stone-400">Штуки, предметы, материалы (без денег)</span>
               </div>
             </button>
 

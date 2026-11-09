@@ -224,7 +224,7 @@ export function requestPersistentStorage(): void {
 }
 
 export function enrichNoteMetadata(note: Note): Note {
-  const math = analyzeNote(note.content);
+  const math = analyzeNote(note.content, note.category);
   const shopping = extractShoppingItems(note.content);
 
   return {
