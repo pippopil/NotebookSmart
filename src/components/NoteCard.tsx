@@ -1,5 +1,5 @@
 import React from 'react';
-import { Note } from '../types';
+import { Note, EVENT_CATEGORY_CONFIG } from '../types';
 import { formatMoney } from '../utils/mathEngine';
 import {
   Pin,
@@ -149,6 +149,14 @@ export const NoteCard: React.FC<NoteCardProps> = ({
               <CatIcon className="w-3 h-3" />
               <span>{categoryConfig.label}</span>
             </span>
+
+            {/* Event category badge if set */}
+            {isEvent && (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border shadow-2xs ${EVENT_CATEGORY_CONFIG[note.eventCategory || 'meeting'].badgeClass}`}>
+                <span>{EVENT_CATEGORY_CONFIG[note.eventCategory || 'meeting'].icon}</span>
+                <span>{EVENT_CATEGORY_CONFIG[note.eventCategory || 'meeting'].label}</span>
+              </span>
+            )}
 
             {/* Event date badge if set */}
             {isEvent && (note.eventDate || note.eventTime) && (

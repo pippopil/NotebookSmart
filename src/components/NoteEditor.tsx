@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Note, NoteCategory, PaperStyleType } from '../types';
+import { Note, NoteCategory, PaperStyleType, EventCategory, EVENT_CATEGORY_CONFIG, EVENT_CATEGORIES_LIST } from '../types';
 import { analyzeNote, formatMoney } from '../utils/mathEngine';
 import { extractShoppingItems } from '../utils/shoppingParser';
 import {
@@ -94,6 +94,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [isPinned, setIsPinned] = useState(note.isPinned || false);
   const [eventDate, setEventDate] = useState(note.eventDate || '');
   const [eventTime, setEventTime] = useState(note.eventTime || '');
+  const [eventCategory, setEventCategory] = useState<EventCategory>(note.eventCategory || 'meeting');
   const [isEventDone, setIsEventDone] = useState(note.isEventDone || false);
   const [paperStyle, setPaperStyle] = useState<PaperStyleType>(
     note.paperStyle === 'dark-grid' ? 'grid' : (note.paperStyle || 'grid')
@@ -320,6 +321,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       isPinned,
       eventDate,
       eventTime,
+      eventCategory,
       isEventDone,
       paperStyle,
       reminderEnabled,
@@ -343,6 +345,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     isPinned,
     eventDate,
     eventTime,
+    eventCategory,
     isEventDone,
     paperStyle,
     reminderEnabled,
@@ -877,41 +880,72 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
         {/* Specific controls if "События" is selected */}
         {category === 'event' && (
-          <div className="mt-2 pt-2 border-t border-amber-900/10 dark:border-stone-800 flex flex-wrap items-center gap-2 text-xs">
-            <div className="flex items-center gap-1.5 bg-white dark:bg-stone-950 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-stone-800">
-              <Calendar className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-              <input
-                type="date"
-                value={eventDate}
-                onChange={(e) => setEventDate(e.target.value)}
-                className="bg-transparent text-stone-900 dark:text-stone-100 text-xs focus:outline-none"
-              />
+          <div className="mt-2 pt-2 border-t border-amber-900/10 dark:border-stone-800 space-y-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-white dark:bg-stone-950 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-stone-800">
+                <Calendar className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                <input
+                  type="date"
+                  value={eventDate}
+                  onChange={(e) => setEventDate(e.target.value)}
+                  className="bg-transparent text-stone-900 dark:text-stone-100 text-xs focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-white dark:bg-stone-950 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-stone-800">
+                <Clock className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                <input
+                  type="time"
+                  value={eventTime}
+                  onChange={(e) => setEventTime(e.target.value)}
+                  className="bg-transparent text-stone-900 dark:text-stone-100 text-xs focus:outline-none"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic();
+                  setIsEventDone(!isEventDone);
+                }}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                  isEventDone
+                    ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40'
+                    : 'bg-white dark:bg-stone-950 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-800 hover:text-stone-900 dark:hover:text-stone-100'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>{isEventDone ? 'Завершено' : 'Отметить выполненным'}</span>
+              </button>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-white dark:bg-stone-950 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-stone-800">
-              <Clock className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-              <input
-                type="time"
-                value={eventTime}
-                onChange={(e) => setEventTime(e.target.value)}
-                className="bg-transparent text-stone-900 dark:text-stone-100 text-xs focus:outline-none"
-              />
+            {/* Event Category selector with vibrant visual color badges */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+              <span className="text-[11px] text-stone-500 dark:text-stone-400 font-semibold mr-1">
+                Категория события:
+              </span>
+              {EVENT_CATEGORIES_LIST.map((cat) => {
+                const isActive = (eventCategory || 'meeting') === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic();
+                      setEventCategory(cat.id);
+                    }}
+                    className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                      isActive
+                        ? `${cat.badgeClass} ring-2 ring-purple-500/50 shadow-xs scale-102`
+                        : 'bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-stone-800 hover:border-stone-300'
+                    }`}
+                  >
+                    <span>{cat.icon}</span>
+                    <span>{cat.label}</span>
+                  </button>
+                );
+              })}
             </div>
-
-            <button
-              onClick={() => {
-                triggerHaptic();
-                setIsEventDone(!isEventDone);
-              }}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-xs font-bold transition cursor-pointer ${
-                isEventDone
-                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40'
-                  : 'bg-white dark:bg-stone-950 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-800 hover:text-stone-900 dark:hover:text-stone-100'
-              }`}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{isEventDone ? 'Завершено' : 'Отметить выполненным'}</span>
-            </button>
           </div>
         )}
 

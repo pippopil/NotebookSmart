@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Note, SyncStatus, ArchivedBudgetMonth, ArchivedShoppingTrip, SecurityConfig, NoteCategory } from './types';
+import { Note, SyncStatus, ArchivedBudgetMonth, ArchivedShoppingTrip, SecurityConfig, NoteCategory, EventCategory } from './types';
 import {
   loadNotes,
   saveNotes,
@@ -457,7 +457,8 @@ export default function App() {
     category: NoteCategory = 'note',
     defaultTitle?: string,
     eventDate?: string,
-    eventTime?: string
+    eventTime?: string,
+    eventCategory?: EventCategory
   ) => {
     triggerHaptic();
     const initialContent =
@@ -482,6 +483,7 @@ export default function App() {
       category,
       eventDate: eventDate || (category === 'event' ? new Date().toISOString().slice(0, 10) : undefined),
       eventTime: eventTime || (category === 'event' ? '14:00' : undefined),
+      eventCategory: eventCategory || (category === 'event' ? 'meeting' : undefined),
       isEventDone: false,
       paperStyle: 'grid',
       color:
@@ -950,7 +952,7 @@ export default function App() {
           <EventsView
             notes={notes}
             onOpenNote={handleOpenNote}
-            onCreateEvent={(title, date, time) => handleCreateNewNote('event', title, date, time)}
+            onCreateEvent={(title, date, time, eventCategory) => handleCreateNewNote('event', title, date, time, eventCategory)}
             onToggleEventDone={handleToggleEventDone}
           />
         )}

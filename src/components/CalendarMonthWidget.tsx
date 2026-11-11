@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Note } from '../types';
+import { Note, EVENT_CATEGORY_CONFIG } from '../types';
 import { findHolidayForDate, Holiday } from '../services/holidays';
 import { TimezoneMode, formatInActiveTimezone } from '../services/timezone';
 import {
@@ -142,6 +142,7 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
         isCurrentMonth: false,
         isToday: dateStr === todayStr,
         eventsCount: dayEvents.length,
+        events: dayEvents,
         holiday,
       });
     }
@@ -159,6 +160,7 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
         isCurrentMonth: true,
         isToday: dateStr === todayStr,
         eventsCount: dayEvents.length,
+        events: dayEvents,
         holiday,
       });
     }
@@ -178,6 +180,7 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
         isCurrentMonth: false,
         isToday: dateStr === todayStr,
         eventsCount: dayEvents.length,
+        events: dayEvents,
         holiday,
       });
     }
@@ -252,9 +255,15 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
             </div>
             <div className="truncate">
               <div className="flex items-center gap-2 mb-0.5">
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.2 rounded-md bg-purple-600 text-white shadow-2xs">
-                  Ближайшее событие
-                </span>
+                {(() => {
+                  const catConfig = EVENT_CATEGORY_CONFIG[nearestUpcomingEvent.eventCategory || 'meeting'];
+                  return (
+                    <span className={`text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-md border flex items-center gap-1 shadow-2xs ${catConfig.badgeClass}`}>
+                      <span>{catConfig.icon}</span>
+                      <span>{catConfig.label}</span>
+                    </span>
+                  );
+                })()}
                 <span className="text-xs font-bold text-purple-900 dark:text-purple-300 font-mono">
                   {getNearestEventStatus(nearestUpcomingEvent).label}
                 </span>
@@ -352,15 +361,31 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
                   )}
                 </div>
 
-                {/* Bottom row: Workload indicators (Dots or Badge) */}
+                {/* Bottom row: Workload indicators + category dots */}
                 <div className="flex items-center justify-between gap-1 mt-1">
                   {cell.eventsCount > 0 ? (
-                    <div
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md text-[10px] font-bold border shadow-2xs ${workloadBadgeClass}`}
-                      title={`Событий в этот день: ${cell.eventsCount}`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${workloadDotColor} shrink-0`} />
-                      <span>{cell.eventsCount}</span>
+                    <div className="flex items-center justify-between w-full gap-0.5">
+                      <div
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md text-[10px] font-bold border shadow-2xs ${workloadBadgeClass}`}
+                        title={`Событий в этот день: ${cell.eventsCount}`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${workloadDotColor} shrink-0`} />
+                        <span>{cell.eventsCount}</span>
+                      </div>
+
+                      {/* Micro category color dots */}
+                      <div className="flex items-center gap-0.5 shrink-0 overflow-hidden">
+                        {cell.events.slice(0, 3).map((evt, idx) => {
+                          const catConf = EVENT_CATEGORY_CONFIG[evt.eventCategory || 'meeting'];
+                          return (
+                            <span
+                              key={idx}
+                              className={`w-1.5 h-1.5 rounded-full ${catConf?.dotColor || 'bg-purple-500'} shrink-0`}
+                              title={`${catConf?.label || 'Событие'}: ${evt.title}`}
+                            />
+                          );
+                        })}
+                      </div>
                     </div>
                   ) : cell.holiday ? (
                     <span className="text-[9px] text-amber-800 dark:text-amber-400 font-bold truncate max-w-full">
@@ -374,27 +399,51 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
         </div>
       </div>
 
-      {/* WORKLOAD DENSITY LEGEND */}
-      <div className="pt-2 border-t border-amber-900/10 dark:border-stone-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-500 dark:text-stone-400">
-        <span className="font-semibold text-stone-700 dark:text-stone-300">
-          Загруженность дней:
-        </span>
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>1 дело</span>
+      {/* WORKLOAD DENSITY & CATEGORIES LEGEND */}
+      <div className="pt-2 border-t border-amber-900/10 dark:border-stone-800 space-y-2 text-[11px] text-stone-500 dark:text-stone-400">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-semibold text-stone-700 dark:text-stone-300">
+            Загруженность:
           </span>
-          <span className="flex items-center gap-1 text-amber-700 dark:text-amber-400 font-bold">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <span>2–3 встречи</span>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span>1 дело</span>
+            </span>
+            <span className="flex items-center gap-1 text-amber-700 dark:text-amber-400 font-bold">
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              <span>2–3 встречи</span>
+            </span>
+            <span className="flex items-center gap-1 text-rose-700 dark:text-rose-400 font-bold">
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span>4+ плотно</span>
+            </span>
+            <span className="flex items-center gap-1 text-amber-600 font-bold">
+              <span>🎉</span>
+              <span>Праздник</span>
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-dashed border-stone-200 dark:border-stone-800 text-[10px]">
+          <span className="text-stone-500 dark:text-stone-400 font-semibold mr-1">Категории:</span>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-500" /> 🤝 Встречи
           </span>
-          <span className="flex items-center gap-1 text-rose-700 dark:text-rose-400 font-bold">
-            <span className="w-2 h-2 rounded-full bg-rose-500" />
-            <span>4+ плотно</span>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> ⏰ Дедлайны
           </span>
-          <span className="flex items-center gap-1 text-amber-600 font-bold">
-            <span>🎉</span>
-            <span>Праздник</span>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500" /> 🎉 Праздники
+          </span>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> 🎂 Дни рождения
+          </span>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-teal-100 text-teal-800 dark:bg-teal-950/80 dark:text-teal-300 border border-teal-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal-500" /> ✈️ Поездки
+          </span>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-stone-200 text-stone-800 dark:bg-stone-800 dark:text-stone-300 border border-stone-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-stone-500" /> 📋 Дела
           </span>
         </div>
       </div>

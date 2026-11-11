@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Note } from '../types';
+import { Note, EventCategory, EVENT_CATEGORY_CONFIG, EVENT_CATEGORIES_LIST } from '../types';
 import { CalendarMonthWidget } from './CalendarMonthWidget';
 import {
   SUPPORTED_COUNTRIES,
@@ -14,7 +14,6 @@ import {
   getSavedTimezoneMode,
   saveTimezoneMode,
   getTimezoneLabel,
-  getActiveTimezone,
 } from '../services/timezone';
 import {
   Calendar as CalendarIcon,
@@ -23,20 +22,18 @@ import {
   Plus,
   ArrowRight,
   Globe,
-  MapPin,
-  Sparkles,
-  ChevronRight,
   Check,
   ChevronDown,
-  Flame,
   CalendarDays,
   Bell,
+  Sparkles,
+  Filter,
 } from 'lucide-react';
 
 interface EventsViewProps {
   notes: Note[];
   onOpenNote: (note: Note) => void;
-  onCreateEvent: (title?: string, date?: string, time?: string) => void;
+  onCreateEvent: (title?: string, date?: string, time?: string, eventCategory?: EventCategory) => void;
   onToggleEventDone: (note: Note) => void;
 }
 
@@ -75,6 +72,9 @@ export const EventsView: React.FC<EventsViewProps> = ({
   // Active View Tab: 'calendar' | 'list' | 'holidays'
   const [activeTab, setActiveTab] = useState<'calendar' | 'list' | 'holidays'>('calendar');
 
+  // Event category filter in list view
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'all' | EventCategory>('all');
+
   // Selected date for day inspector
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
 
@@ -83,6 +83,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const [newTitle, setNewTitle] = useState('');
   const [newDate, setNewDate] = useState(new Date().toISOString().slice(0, 10));
   const [newTime, setNewTime] = useState('12:00');
+  const [newCategory, setNewCategory] = useState<EventCategory>('meeting');
 
   // Real-time clock tick for timezone preview
   const [currentTimeTick, setCurrentTimeTick] = useState<number>(Date.now());
@@ -112,6 +113,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
     return SUPPORTED_COUNTRIES.find((c) => c.code === activeCountryCode) || SUPPORTED_COUNTRIES[0];
   }, [activeCountryCode]);
 
+  // Auto-loads holidays using date-holidays library
   const activeHolidays = useMemo(() => {
     return getCountryHolidays(activeCountryCode);
   }, [activeCountryCode]);
@@ -144,6 +146,12 @@ export const EventsView: React.FC<EventsViewProps> = ({
     return notes.filter((n) => n.category === 'event' && !n.isArchived);
   }, [notes]);
 
+  // Filtered event notes for the list tab
+  const filteredEventNotes = useMemo(() => {
+    if (selectedCategoryFilter === 'all') return eventNotes;
+    return eventNotes.filter((n) => (n.eventCategory || 'meeting') === selectedCategoryFilter);
+  }, [eventNotes, selectedCategoryFilter]);
+
   // Events on the currently selected date
   const selectedDateEvents = useMemo(() => {
     return eventNotes.filter((n) => {
@@ -160,8 +168,9 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const handleQuickSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    onCreateEvent(newTitle.trim(), newDate, newTime);
+    onCreateEvent(newTitle.trim(), newDate, newTime, newCategory);
     setNewTitle('');
+    setNewCategory('meeting');
     setShowQuickForm(false);
   };
 
@@ -181,11 +190,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 <CalendarIcon className="w-5 h-5" />
               </span>
               <h2 className="text-xl font-bold text-stone-900 dark:text-white tracking-tight">
-                Интуитивный календарь & События
+                Интуитивный календарь & Категории событий
               </h2>
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400">
-              Сетка месяца, загрузка праздников стран, учет часовых поясов и плотность графика
+              Категории событий с цветовой дифференциацией, авто-загрузка государственных праздников и учет часовых поясов
             </p>
           </div>
 
@@ -241,15 +250,18 @@ export const EventsView: React.FC<EventsViewProps> = ({
           </div>
         </div>
 
-        {/* 3. HOLIDAYS LOADER & COUNTRY SELECTION SWITCHER */}
+        {/* 3. HOLIDAYS AUTO-LOADER & COUNTRY SELECTION SWITCHER (powered by date-holidays) */}
         <div className="bg-amber-500/10 dark:bg-stone-850/80 rounded-2xl p-3 border border-amber-500/30 dark:border-stone-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-xl select-none">🎉</span>
             <div>
-              <span className="font-bold text-stone-900 dark:text-white flex items-center gap-1.5">
+              <span className="font-bold text-stone-900 dark:text-white flex items-center gap-1.5 flex-wrap">
                 <span>Государственные праздники:</span>
-                <span className="px-2 py-0.2 rounded-full bg-amber-500/20 text-amber-900 dark:text-amber-300 font-extrabold text-[11px] border border-amber-400/40">
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-900 dark:text-amber-300 font-extrabold text-[11px] border border-amber-400/40">
                   {activeCountryObj.flag} {activeCountryObj.name} ({activeHolidays.length})
+                </span>
+                <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-bold text-[10px] border border-emerald-400/30">
+                  ⚡ date-holidays
                 </span>
               </span>
               <span className="text-[11px] text-stone-500 dark:text-stone-400">
@@ -301,9 +313,9 @@ export const EventsView: React.FC<EventsViewProps> = ({
               </button>
 
               {showCountryDropdown && (
-                <div className="absolute right-0 top-full mt-1.5 w-56 max-h-64 overflow-y-auto bg-white dark:bg-stone-900 border border-amber-900/15 dark:border-stone-700 rounded-2xl shadow-xl z-50 p-1.5 space-y-0.5 animate-in fade-in">
+                <div className="absolute right-0 top-full mt-1.5 w-60 max-h-72 overflow-y-auto bg-white dark:bg-stone-900 border border-amber-900/15 dark:border-stone-700 rounded-2xl shadow-xl z-50 p-1.5 space-y-0.5 animate-in fade-in">
                   <div className="px-2 py-1 text-[10px] uppercase font-bold text-stone-400">
-                    Выберите страну для праздников:
+                    Авто-загрузка праздников для страны:
                   </div>
                   {SUPPORTED_COUNTRIES.map((c) => (
                     <button
@@ -329,7 +341,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
         </div>
       </div>
 
-      {/* QUICK EVENT FORM */}
+      {/* QUICK EVENT FORM WITH CATEGORY SELECTION */}
       {showQuickForm && (
         <form
           onSubmit={handleQuickSubmit}
@@ -363,6 +375,33 @@ export const EventsView: React.FC<EventsViewProps> = ({
             />
           </div>
 
+          {/* Category Selector with Color Highlights */}
+          <div>
+            <label className="text-[11px] text-stone-500 dark:text-stone-400 block mb-1 font-semibold">
+              Категория события (выделение цветом):
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {EVENT_CATEGORIES_LIST.map((cat) => {
+                const isSelected = newCategory === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setNewCategory(cat.id)}
+                    className={`p-2 rounded-xl border text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                      isSelected
+                        ? `${cat.badgeClass} ring-2 ring-purple-500/60 shadow-sm scale-102`
+                        : 'bg-stone-50 dark:bg-stone-850 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-800 hover:border-stone-300'
+                    }`}
+                  >
+                    <span className="text-base select-none">{cat.icon}</span>
+                    <span className="truncate">{cat.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] text-stone-500 dark:text-stone-400 block mb-1 font-semibold">
@@ -392,7 +431,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             <button
               type="button"
               onClick={() => setShowQuickForm(false)}
-              className="px-3 py-1.5 rounded-xl text-xs text-stone-600 dark:text-stone-400 hover:text-stone-900"
+              className="px-3 py-1.5 rounded-xl text-xs text-stone-600 dark:text-stone-400 hover:text-stone-900 cursor-pointer"
             >
               Отмена
             </button>
@@ -448,7 +487,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
       {/* TAB 1: MONTH CALENDAR WIDGET & SELECTED DAY INSPECTOR */}
       {activeTab === 'calendar' && (
         <div className="space-y-4">
-          {/* Main Month Widget with Density Workload & Nearest Event */}
+          {/* Main Month Widget with Density Workload, Categories & Nearest Event */}
           <CalendarMonthWidget
             notes={notes}
             timezoneMode={timezoneMode}
@@ -491,53 +530,62 @@ export const EventsView: React.FC<EventsViewProps> = ({
               </button>
             </div>
 
-            {/* List of events on this day */}
+            {/* List of events on this day with category highlights */}
             {selectedDateEvents.length > 0 ? (
               <div className="space-y-2">
-                {selectedDateEvents.map((evt) => (
-                  <div
-                    key={evt.id}
-                    onClick={() => onOpenNote(evt)}
-                    className="p-3 rounded-2xl bg-stone-50 hover:bg-stone-100 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-stone-200 dark:border-stone-700 flex items-center justify-between gap-3 transition cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onToggleEventDone(evt);
-                        }}
-                        className="text-stone-300 hover:text-purple-600 dark:text-stone-600 dark:hover:text-purple-400 shrink-0 cursor-pointer p-0.5"
-                      >
-                        {evt.isEventDone ? (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-500/20" />
-                        ) : (
-                          <div className="w-5 h-5 rounded-full border-2 border-stone-300 dark:border-stone-600" />
-                        )}
-                      </button>
-
-                      <div className="truncate">
-                        <span
-                          className={`font-bold text-xs block truncate ${
-                            evt.isEventDone
-                              ? 'line-through text-stone-400 dark:text-stone-500'
-                              : 'text-stone-900 dark:text-white'
-                          }`}
+                {selectedDateEvents.map((evt) => {
+                  const catConfig = EVENT_CATEGORY_CONFIG[evt.eventCategory || 'meeting'];
+                  return (
+                    <div
+                      key={evt.id}
+                      onClick={() => onOpenNote(evt)}
+                      className={`p-3 rounded-2xl bg-stone-50 hover:bg-stone-100 dark:bg-stone-800/80 dark:hover:bg-stone-800 border ${catConfig.borderClass} border-l-4 flex items-center justify-between gap-3 transition cursor-pointer group`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleEventDone(evt);
+                          }}
+                          className="text-stone-300 hover:text-purple-600 dark:text-stone-600 dark:hover:text-purple-400 shrink-0 cursor-pointer p-0.5"
                         >
-                          {evt.title || 'Событие без названия'}
-                        </span>
-                        <span className="text-[11px] text-stone-500 dark:text-stone-400 flex items-center gap-1 font-mono">
-                          <Clock className="w-3 h-3 text-purple-600" />
-                          <span>{evt.eventTime || '12:00'}</span>
-                        </span>
+                          {evt.isEventDone ? (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-500/20" />
+                          ) : (
+                            <div className="w-5 h-5 rounded-full border-2 border-stone-300 dark:border-stone-600" />
+                          )}
+                        </button>
+
+                        <div className="truncate">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.2 rounded-md text-[10px] font-bold border shadow-2xs ${catConfig.badgeClass}`}>
+                              <span>{catConfig.icon}</span>
+                              <span>{catConfig.label}</span>
+                            </span>
+                          </div>
+                          <span
+                            className={`font-bold text-xs block truncate ${
+                              evt.isEventDone
+                                ? 'line-through text-stone-400 dark:text-stone-500'
+                                : 'text-stone-900 dark:text-white'
+                            }`}
+                          >
+                            {evt.title || 'Событие без названия'}
+                          </span>
+                          <span className="text-[11px] text-stone-500 dark:text-stone-400 flex items-center gap-1 font-mono">
+                            <Clock className="w-3 h-3 text-purple-600" />
+                            <span>{evt.eventTime || '12:00'}</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 text-purple-700 dark:text-purple-400 font-bold text-xs shrink-0 group-hover:translate-x-1 transition">
+                        <span className="hidden sm:inline">В тетрадь</span>
+                        <ArrowRight className="w-4 h-4" />
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-1 text-purple-700 dark:text-purple-400 font-bold text-xs shrink-0 group-hover:translate-x-1 transition">
-                      <span className="hidden sm:inline">В тетрадь</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="p-4 text-center rounded-2xl bg-stone-50/60 dark:bg-stone-850/40 border border-dashed border-stone-300 dark:border-stone-700 text-xs text-stone-500 dark:text-stone-400 space-y-1">
@@ -554,73 +602,124 @@ export const EventsView: React.FC<EventsViewProps> = ({
         </div>
       )}
 
-      {/* TAB 2: FULL EVENTS LIST */}
+      {/* TAB 2: FULL EVENTS LIST WITH CATEGORY FILTERS & COLOR HIGHLIGHTING */}
       {activeTab === 'list' && (
         <div className="space-y-3">
-          {eventNotes.length === 0 ? (
+          {/* Category Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+            <button
+              onClick={() => setSelectedCategoryFilter('all')}
+              className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1 shrink-0 ${
+                selectedCategoryFilter === 'all'
+                  ? 'bg-purple-600 text-white shadow-2xs'
+                  : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-800'
+              }`}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              <span>Все ({eventNotes.length})</span>
+            </button>
+
+            {EVENT_CATEGORIES_LIST.map((cat) => {
+              const count = eventNotes.filter((n) => (n.eventCategory || 'meeting') === cat.id).length;
+              const isSelected = selectedCategoryFilter === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategoryFilter(cat.id)}
+                  className={`px-2.5 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1 shrink-0 border ${
+                    isSelected
+                      ? `${cat.badgeClass} ring-2 ring-purple-500/50 shadow-2xs`
+                      : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-800 hover:border-stone-300'
+                  }`}
+                >
+                  <span>{cat.icon}</span>
+                  <span>{cat.label}</span>
+                  <span className="text-[10px] opacity-75">({count})</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {filteredEventNotes.length === 0 ? (
             <div className="text-center py-12 px-4 bg-white dark:bg-stone-900 rounded-3xl border border-amber-900/10 dark:border-stone-800">
               <CalendarIcon className="w-10 h-10 text-stone-400 mx-auto mb-2" />
-              <h3 className="font-bold text-base text-stone-900 dark:text-white">Пока нет событий</h3>
+              <h3 className="font-bold text-base text-stone-900 dark:text-white">
+                {selectedCategoryFilter === 'all' ? 'Пока нет событий' : 'Нет событий в этой категории'}
+              </h3>
               <p className="text-xs text-stone-500 dark:text-stone-400 max-w-xs mx-auto mb-4">
-                Добавьте важное событие, встречу или мероприятие с датой и временем.
+                Добавьте важное событие, встречу, дедлайн или праздник с датой и временем.
               </p>
               <button
-                onClick={() => setShowQuickForm(true)}
+                onClick={() => {
+                  if (selectedCategoryFilter !== 'all') {
+                    setNewCategory(selectedCategoryFilter);
+                  }
+                  setShowQuickForm(true);
+                }}
                 className="px-4 py-2 rounded-xl bg-purple-600 text-white text-xs font-bold shadow-md cursor-pointer"
               >
-                + Добавить первое событие
+                + Добавить событие
               </button>
             </div>
           ) : (
-            eventNotes.map((evt) => (
-              <div
-                key={evt.id}
-                onClick={() => onOpenNote(evt)}
-                className="p-4 rounded-3xl bg-white dark:bg-stone-900 border border-amber-900/15 dark:border-stone-800 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition cursor-pointer group"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleEventDone(evt);
-                    }}
-                    className="text-stone-400 hover:text-purple-600 shrink-0 cursor-pointer p-0.5"
-                  >
-                    {evt.isEventDone ? (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-500/20" />
-                    ) : (
-                      <div className="w-5 h-5 rounded-full border-2 border-stone-300 dark:border-stone-600" />
-                    )}
-                  </button>
-
-                  <div className="truncate">
-                    <h4
-                      className={`font-bold text-sm truncate ${
-                        evt.isEventDone
-                          ? 'line-through text-stone-400 dark:text-stone-500'
-                          : 'text-stone-900 dark:text-white'
-                      }`}
+            filteredEventNotes.map((evt) => {
+              const catConfig = EVENT_CATEGORY_CONFIG[evt.eventCategory || 'meeting'];
+              return (
+                <div
+                  key={evt.id}
+                  onClick={() => onOpenNote(evt)}
+                  className={`p-4 rounded-3xl bg-white dark:bg-stone-900 border ${catConfig.borderClass} border-l-4 shadow-sm flex items-center justify-between gap-3 hover:shadow-md transition cursor-pointer group`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleEventDone(evt);
+                      }}
+                      className="text-stone-400 hover:text-purple-600 shrink-0 cursor-pointer p-0.5"
                     >
-                      {evt.title || 'Событие'}
-                    </h4>
-                    <p className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-2 mt-0.5 font-mono">
-                      <span>📅 {evt.eventDate || 'Без даты'}</span>
-                      <span>•</span>
-                      <span>⏰ {evt.eventTime || '12:00'}</span>
-                    </p>
+                      {evt.isEventDone ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-500/20" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full border-2 border-stone-300 dark:border-stone-600" />
+                      )}
+                    </button>
+
+                    <div className="truncate">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border shadow-2xs ${catConfig.badgeClass}`}>
+                          <span>{catConfig.icon}</span>
+                          <span>{catConfig.label}</span>
+                        </span>
+                      </div>
+                      <h4
+                        className={`font-bold text-sm truncate ${
+                          evt.isEventDone
+                            ? 'line-through text-stone-400 dark:text-stone-500'
+                            : 'text-stone-900 dark:text-white'
+                        }`}
+                      >
+                        {evt.title || 'Событие'}
+                      </h4>
+                      <p className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-2 mt-0.5 font-mono">
+                        <span>📅 {evt.eventDate || 'Без даты'}</span>
+                        <span>•</span>
+                        <span>⏰ {evt.eventTime || '12:00'}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {evt.reminderEnabled && (
+                      <span className="p-1.5 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                        <Bell className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                    <ArrowRight className="w-4 h-4 text-purple-600 group-hover:translate-x-1 transition" />
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {evt.reminderEnabled && (
-                    <span className="p-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400">
-                      <Bell className="w-3.5 h-3.5" />
-                    </span>
-                  )}
-                  <ArrowRight className="w-4 h-4 text-purple-600 group-hover:translate-x-1 transition" />
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
@@ -628,14 +727,17 @@ export const EventsView: React.FC<EventsViewProps> = ({
       {/* TAB 3: HOLIDAYS LIST FOR SELECTED COUNTRY */}
       {activeTab === 'holidays' && (
         <div className="bg-white dark:bg-stone-900 border border-amber-900/15 dark:border-stone-800 rounded-3xl p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between gap-3 pb-3 border-b border-stone-200 dark:border-stone-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-200 dark:border-stone-800">
             <div>
-              <h3 className="font-bold text-base text-stone-900 dark:text-white flex items-center gap-2">
+              <h3 className="font-bold text-base text-stone-900 dark:text-white flex items-center gap-2 flex-wrap">
                 <span>{activeCountryObj.flag}</span>
                 <span>Официальные праздники: {activeCountryObj.name}</span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-bold text-[10px] border border-emerald-400/40">
+                  ⚡ Библиотека date-holidays
+                </span>
               </h3>
               <p className="text-xs text-stone-500 dark:text-stone-400">
-                Всего {activeHolidays.length} праздничных дат, учитываемых в календаре
+                Всего {activeHolidays.length} государственных праздников и памятных дат для выбранной страны
               </p>
             </div>
           </div>
