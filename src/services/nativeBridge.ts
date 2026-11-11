@@ -170,6 +170,29 @@ export function syncNativeWidget(data: WidgetPayload): boolean {
 export function syncWidgetFromNotes(notes: Note[]): void {
   if (!isAndroidNativeApp()) return;
 
+  // Find nearest upcoming event
+  const now = Date.now();
+  let nearestEvent: Note | null = null;
+  let nearestDiff = Infinity;
+
+  const eventNotes = notes.filter((n) => !n.isArchived && n.category === 'event' && !n.isEventDone);
+  for (const en of eventNotes) {
+    let eventTime = 0;
+    if (en.eventDate) {
+      const timeStr = en.eventTime || '09:00';
+      eventTime = new Date(`${en.eventDate}T${timeStr}`).getTime();
+    } else if (en.reminderDateTime) {
+      eventTime = new Date(en.reminderDateTime).getTime();
+    }
+    if (eventTime && eventTime >= now - 1000 * 60 * 60) {
+      const diff = eventTime - now;
+      if (diff < nearestDiff) {
+        nearestDiff = diff;
+        nearestEvent = en;
+      }
+    }
+  }
+
   // Find active shopping notes
   const shoppingNotes = notes.filter((n) => !n.isArchived && (n.category === 'shopping' || n.shoppingItemsCount));
   
@@ -188,11 +211,30 @@ export function syncWidgetFromNotes(notes: Note[]): void {
     }
   }
 
-  if (uncheckedItems.length > 0) {
+  if (nearestEvent && uncheckedItems.length === 0) {
+    // Show Calendar & Nearest Event in Android Home Screen Widget
+    const dateStr = nearestEvent.eventDate
+      ? new Date(nearestEvent.eventDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+      : 'Скоро';
+    const timeStr = nearestEvent.eventTime ? ` в ${nearestEvent.eventTime}` : '';
+
+    syncNativeWidget({
+      badge: '📅 Календарь событий',
+      summary: `Ближайшее: ${nearestEvent.title || 'Событие'}`,
+      items: [
+        `• Дата: ${dateStr}${timeStr}`,
+        nearestEvent.content ? `• ${nearestEvent.content.slice(0, 45)}` : '• Откройте в тетрадке',
+        `• Всего событий: ${eventNotes.length}`,
+      ],
+      remaining: 'Нажмите для перехода к календарю →',
+    });
+  } else if (uncheckedItems.length > 0) {
     const remainingCount = totalPending - uncheckedItems.length;
+    const eventHint = nearestEvent ? ` | 📅 ${nearestEvent.title?.slice(0, 16)}` : '';
+
     syncNativeWidget({
       badge: '🛒 Список покупок',
-      summary: `К покупке: ${totalPending} товаров`,
+      summary: `К покупке: ${totalPending} товаров${eventHint}`,
       items: uncheckedItems,
       remaining: remainingCount > 0 ? `+ еще ${remainingCount} товаров в списке...` : '✓ Все актуальные товары показаны',
     });
