@@ -37,11 +37,22 @@ import {
   Activity,
   Cpu,
   Fingerprint,
-  HardDrive,
-  FileCheck,
   FolderDown,
   Trash,
+  Check,
+  Globe,
+  Settings,
+  HardDrive,
+  FileCheck,
 } from 'lucide-react';
+import {
+  TimezoneMode,
+  getTimezoneLabel,
+  getDeviceTimezone,
+  isLocalDifferentFromMsk,
+  getSavedTimezoneMode,
+  saveTimezoneMode,
+} from '../services/timezone';
 import {
   getNativeAppInfo,
   isAndroidNativeApp,
@@ -59,6 +70,9 @@ interface AboutViewProps {
   notes: Note[];
   onOpenChangelog?: () => void;
   onOpenSecurity?: () => void;
+  onOpenSettings?: () => void;
+  timezoneMode?: TimezoneMode;
+  onTimezoneModeChange?: (mode: TimezoneMode) => void;
   onRestoreNotes?: (notes: Note[]) => void;
 }
 
@@ -66,8 +80,38 @@ export const AboutView: React.FC<AboutViewProps> = ({
   notes,
   onOpenChangelog,
   onOpenSecurity,
+  onOpenSettings,
+  timezoneMode: propTimezoneMode,
+  onTimezoneModeChange: propOnTimezoneModeChange,
   onRestoreNotes,
 }) => {
+  const [internalTimezoneMode, setInternalTimezoneMode] = useState<TimezoneMode>(() => getSavedTimezoneMode());
+  const effectiveTimezoneMode = propTimezoneMode || internalTimezoneMode;
+
+  const handleTimezoneChange = (mode: TimezoneMode) => {
+    setInternalTimezoneMode(mode);
+    saveTimezoneMode(mode);
+    nativeHaptic('light');
+    if (propOnTimezoneModeChange) {
+      propOnTimezoneModeChange(mode);
+    }
+  };
+
+  const tzInfo = getTimezoneLabel(effectiveTimezoneMode);
+  const deviceTz = getDeviceTimezone();
+
+  const mskTimeStr = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date());
+
+  const localTimeStr = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: deviceTz,
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date());
+
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -265,6 +309,106 @@ export const AboutView: React.FC<AboutViewProps> = ({
               {updateMessage}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* TIMEZONE SETTINGS CARD */}
+      <div className="bg-[#fffdf9] dark:bg-stone-900 rounded-3xl border border-amber-900/15 dark:border-stone-800 p-5 sm:p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-2xl bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center">
+              <Globe className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base sm:lg font-bold text-stone-900 dark:text-white">
+                Часовой пояс приложения
+              </h2>
+              <p className="text-xs text-stone-500 dark:text-stone-400">
+                Автоматическое применение ко всем событиям и календарю
+              </p>
+            </div>
+          </div>
+
+          {onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 text-xs font-semibold transition cursor-pointer"
+            >
+              <Settings className="w-3.5 h-3.5 text-stone-500" />
+              <span>Все настройки</span>
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          {/* Option 1: Moscow Time */}
+          <button
+            type="button"
+            onClick={() => handleTimezoneChange('default_msk')}
+            className={`p-4 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+              effectiveTimezoneMode === 'default_msk'
+                ? 'bg-amber-500/10 border-amber-500 text-stone-900 dark:text-white shadow-2xs'
+                : 'bg-white dark:bg-stone-800/60 border-stone-200 dark:border-stone-750 text-stone-700 dark:text-stone-300 hover:border-amber-400'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🇷🇺</span>
+                <div>
+                  <div className="font-bold text-sm">Московское время (МСК)</div>
+                  <div className="text-xs text-stone-500 dark:text-stone-400">UTC+3 (стандарт)</div>
+                </div>
+              </div>
+              {effectiveTimezoneMode === 'default_msk' && (
+                <div className="w-5 h-5 rounded-full bg-amber-600 text-white flex items-center justify-center shrink-0">
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                </div>
+              )}
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-stone-200/50 dark:border-stone-700/50">
+              <span className="text-stone-500 dark:text-stone-400">Текущее время:</span>
+              <span className="font-mono font-bold text-amber-700 dark:text-amber-400">{mskTimeStr}</span>
+            </div>
+          </button>
+
+          {/* Option 2: Device Local Time */}
+          <button
+            type="button"
+            onClick={() => handleTimezoneChange('device_local')}
+            className={`p-4 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer ${
+              effectiveTimezoneMode === 'device_local'
+                ? 'bg-amber-500/10 border-amber-500 text-stone-900 dark:text-white shadow-2xs'
+                : 'bg-white dark:bg-stone-800/60 border-stone-200 dark:border-stone-750 text-stone-700 dark:text-stone-300 hover:border-amber-400'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🌐</span>
+                <div>
+                  <div className="font-bold text-sm">Местное время устройства</div>
+                  <div className="text-xs text-stone-500 dark:text-stone-400 truncate max-w-[150px]">
+                    {deviceTz}
+                  </div>
+                </div>
+              </div>
+              {effectiveTimezoneMode === 'device_local' && (
+                <div className="w-5 h-5 rounded-full bg-amber-600 text-white flex items-center justify-center shrink-0">
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                </div>
+              )}
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-stone-200/50 dark:border-stone-700/50">
+              <span className="text-stone-500 dark:text-stone-400">Текущее время:</span>
+              <span className="font-mono font-bold text-amber-700 dark:text-amber-400">{localTimeStr}</span>
+            </div>
+          </button>
+        </div>
+
+        <div className="p-3 rounded-2xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/20 text-xs text-stone-700 dark:text-stone-300 flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <p>
+            Активен режим: <strong className="text-amber-700 dark:text-amber-400">{tzInfo.label}</strong> ({tzInfo.offsetStr}). Все события во вкладке «События» и в виджете календаря автоматически пересчитываются и группируются с учетом этого часового пояса.
+          </p>
         </div>
       </div>
 

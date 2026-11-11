@@ -58,6 +58,8 @@ import { ChangelogModal } from './components/ChangelogModal';
 import { QuickTemplatesModal, NoteTemplate } from './components/QuickTemplatesModal';
 import { ShareNoteModal } from './components/ShareNoteModal';
 import { AboutView } from './components/AboutView';
+import { AppSettingsModal } from './components/AppSettingsModal';
+import { TimezoneMode, getSavedTimezoneMode, saveTimezoneMode } from './services/timezone';
 import { APP_VERSION } from './version';
 import { extractShoppingItems } from './utils/shoppingParser';
 import {
@@ -94,6 +96,22 @@ export default function App() {
   const [shoppingTargetNote, setShoppingTargetNote] = useState<Note | null>(null);
   const [isChangelogOpen, setIsChangelogOpen] = useState<boolean>(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState<boolean>(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [timezoneMode, setTimezoneMode] = useState<TimezoneMode>(() => getSavedTimezoneMode());
+
+  // Listen for timezone changes dispatched from settings or subcomponents
+  useEffect(() => {
+    const handleTzChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ mode: TimezoneMode }>;
+      if (customEvent.detail?.mode) {
+        setTimezoneMode(customEvent.detail.mode);
+      } else {
+        setTimezoneMode(getSavedTimezoneMode());
+      }
+    };
+    window.addEventListener('notebook_timezone_changed', handleTzChange);
+    return () => window.removeEventListener('notebook_timezone_changed', handleTzChange);
+  }, []);
 
   // Local Passcode & Biometric Security
   const [securityConfig, setSecurityConfig] = useState<SecurityConfig>(() => loadSecurityConfig());
@@ -776,6 +794,7 @@ export default function App() {
         onOpenChangelog={() => setIsChangelogOpen(true)}
         onOpenTemplates={() => setIsTemplatesOpen(true)}
         onOpenSecurity={() => setIsSecurityModalOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
         isSecurityConfigured={securityConfig.isPasscodeSet}
         isUnlocked={isUnlocked}
         searchQuery={searchQuery}
@@ -951,6 +970,12 @@ export default function App() {
         {activeTab === 'events' && (
           <EventsView
             notes={notes}
+            timezoneMode={timezoneMode}
+            onTimezoneModeChange={(newMode) => {
+              setTimezoneMode(newMode);
+              saveTimezoneMode(newMode);
+            }}
+            onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenNote={handleOpenNote}
             onCreateEvent={(title, date, time, eventCategory) => handleCreateNewNote('event', title, date, time, eventCategory)}
             onToggleEventDone={handleToggleEventDone}
@@ -1030,6 +1055,12 @@ export default function App() {
         {activeTab === 'about' && (
           <AboutView
             notes={notes}
+            timezoneMode={timezoneMode}
+            onTimezoneModeChange={(newMode) => {
+              setTimezoneMode(newMode);
+              saveTimezoneMode(newMode);
+            }}
+            onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenChangelog={() => setIsChangelogOpen(true)}
             onOpenSecurity={() => setIsSecurityModalOpen(true)}
             onRestoreNotes={(importedNotes) => {
@@ -1117,6 +1148,19 @@ export default function App() {
         }}
         onLockNow={handleLockNow}
         isCurrentlyUnlocked={isUnlocked}
+      />
+
+      {/* Application Settings Modal (Timezone, Security, Theme, etc.) */}
+      <AppSettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        timezoneMode={timezoneMode}
+        onTimezoneModeChange={(newMode) => {
+          setTimezoneMode(newMode);
+          saveTimezoneMode(newMode);
+        }}
+        onOpenSecurity={() => setIsSecurityModalOpen(true)}
+        onOpenChangelog={() => setIsChangelogOpen(true)}
       />
 
       {/* Social Media Share Modal from Cards */}

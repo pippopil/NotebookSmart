@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Note, EVENT_CATEGORY_CONFIG } from '../types';
 import { findHolidayForDate, Holiday } from '../services/holidays';
-import { TimezoneMode, formatInActiveTimezone } from '../services/timezone';
+import { TimezoneMode, formatInActiveTimezone, convertEventToActiveTimezone, getActiveTodayDateStr } from '../services/timezone';
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -44,13 +44,16 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
   });
 
   // Calculate day densities & scheduled events per date
+  // Calculate day densities & scheduled events per date according to active timezone
   const eventsByDate = useMemo(() => {
     const map = new Map<string, Note[]>();
     for (const n of notes) {
       if (n.isArchived) continue;
       let dateKey: string | null = null;
       if (n.category === 'event' && n.eventDate) {
-        dateKey = n.eventDate;
+        // Automatically apply selected timezone to event date
+        const converted = convertEventToActiveTimezone(n.eventDate, n.eventTime, timezoneMode);
+        dateKey = converted.date;
       } else if (n.reminderDateTime) {
         dateKey = n.reminderDateTime.slice(0, 10);
       }
@@ -61,7 +64,7 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
       }
     }
     return map;
-  }, [notes]);
+  }, [notes, timezoneMode]);
 
   // Find nearest upcoming event from now
   const nearestUpcomingEvent = useMemo(() => {
@@ -74,8 +77,9 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
 
       let eventTime = 0;
       if (n.eventDate) {
-        const timeStr = n.eventTime || '09:00';
-        eventTime = new Date(`${n.eventDate}T${timeStr}`).getTime();
+        const converted = convertEventToActiveTimezone(n.eventDate, n.eventTime, timezoneMode);
+        const timeStr = converted.time || '09:00';
+        eventTime = new Date(`${converted.date}T${timeStr}`).getTime();
       } else if (n.reminderDateTime) {
         eventTime = new Date(n.reminderDateTime).getTime();
       }
@@ -89,12 +93,14 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
       }
     }
     return bestNote;
-  }, [notes]);
+  }, [notes, timezoneMode]);
 
-  // Helper for human-readable countdown to nearest event
+  // Helper for human-readable countdown to nearest event with active timezone label
   const getNearestEventStatus = (note: Note) => {
-    const dateStr = note.eventDate || (note.reminderDateTime ? note.reminderDateTime.slice(0, 10) : '');
-    const timeStr = note.eventTime || (note.reminderDateTime ? note.reminderDateTime.slice(11, 16) : '');
+    const converted = convertEventToActiveTimezone(note.eventDate, note.eventTime, timezoneMode);
+    const dateStr = converted.date || (note.reminderDateTime ? note.reminderDateTime.slice(0, 10) : '');
+    const timeStr = converted.time || (note.reminderDateTime ? note.reminderDateTime.slice(11, 16) : '');
+    const tzBadge = timezoneMode === 'default_msk' ? 'МСК' : 'местн.';
     if (!dateStr) return { label: 'Запланировано', isToday: false };
 
     const today = new Date();
@@ -104,11 +110,11 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
 
     const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 0) return { label: `Сегодня в ${timeStr || '12:00'}`, isToday: true };
-    if (diffDays === 1) return { label: `Завтра в ${timeStr || '12:00'}`, isTomorrow: true };
-    if (diffDays > 1 && diffDays <= 7) return { label: `Через ${diffDays} дн. (${timeStr || ''})` };
+    if (diffDays === 0) return { label: `Сегодня в ${timeStr || '12:00'} (${tzBadge})`, isToday: true };
+    if (diffDays === 1) return { label: `Завтра в ${timeStr || '12:00'} (${tzBadge})`, isTomorrow: true };
+    if (diffDays > 1 && diffDays <= 7) return { label: `Через ${diffDays} дн. (${timeStr || ''} ${tzBadge})` };
     return {
-      label: `${new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} в ${timeStr || '12:00'}`,
+      label: `${new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} в ${timeStr || '12:00'} (${tzBadge})`,
     };
   };
 
@@ -124,7 +130,8 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
     const daysInMonth = lastDayOfMonth.getDate();
     const prevMonthLastDay = new Date(year, month, 0).getDate();
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    // Active timezone today date
+    const todayStr = getActiveTodayDateStr(timezoneMode);
 
     const cells = [];
 

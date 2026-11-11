@@ -1,7 +1,7 @@
 import React from 'react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { SyncStatus } from '../types';
-import { Cloud, CloudOff, RefreshCw, Github, WifiOff, Search, Shield, ShieldCheck, Lock } from 'lucide-react';
+import { Cloud, CloudOff, RefreshCw, Github, WifiOff, Search, Shield, ShieldCheck, Lock, Settings } from 'lucide-react';
 import { AppLogo } from './AppLogo';
 import { ThemeToggle } from './ThemeToggle';
 import { APP_VERSION } from '../version';
@@ -12,6 +12,7 @@ interface HeaderProps {
   syncStatus: SyncStatus;
   isOnline: boolean;
   onOpenSync: () => void;
+  onOpenSettings?: () => void;
   onOpenChangelog?: () => void;
   onOpenTemplates?: () => void;
   onOpenSearch?: () => void;
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   syncStatus,
   isOnline,
   onOpenSync,
+  onOpenSettings,
   onOpenChangelog,
   onOpenTemplates,
   onOpenSecurity,
@@ -66,8 +68,19 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Right tools: Theme Toggle (День/Ночь), Templates, Sync, PWA, GitHub */}
+        {/* Right tools: Settings, Theme Toggle (День/Ночь), Templates, Sync, PWA, GitHub */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* App Settings Modal (Timezone MSK/Local, Theme, Security) */}
+          {onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition active:scale-95 cursor-pointer flex items-center justify-center"
+              title="Настройки приложения (выбор часового пояса МСК / локальный)"
+            >
+              <Settings className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            </button>
+          )}
+
           {/* Day / Night Mode Toggle */}
           <ThemeToggle />
 

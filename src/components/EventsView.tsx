@@ -14,6 +14,8 @@ import {
   getSavedTimezoneMode,
   saveTimezoneMode,
   getTimezoneLabel,
+  convertEventToActiveTimezone,
+  getActiveTodayDateStr,
 } from '../services/timezone';
 import {
   Calendar as CalendarIcon,
@@ -28,6 +30,7 @@ import {
   Bell,
   Sparkles,
   Filter,
+  Settings,
 } from 'lucide-react';
 
 interface EventsViewProps {
@@ -35,6 +38,9 @@ interface EventsViewProps {
   onOpenNote: (note: Note) => void;
   onCreateEvent: (title?: string, date?: string, time?: string, eventCategory?: EventCategory) => void;
   onToggleEventDone: (note: Note) => void;
+  timezoneMode?: TimezoneMode;
+  onTimezoneModeChange?: (mode: TimezoneMode) => void;
+  onOpenSettings?: () => void;
 }
 
 export type HolidayMode = 'my_country' | 'current_location' | 'manual_select';
@@ -44,9 +50,13 @@ export const EventsView: React.FC<EventsViewProps> = ({
   onOpenNote,
   onCreateEvent,
   onToggleEventDone,
+  timezoneMode: propTimezoneMode,
+  onTimezoneModeChange: propOnTimezoneModeChange,
+  onOpenSettings,
 }) => {
-  // Timezone Setting State (МСК default vs Local device timezone)
-  const [timezoneMode, setTimezoneMode] = useState<TimezoneMode>(() => getSavedTimezoneMode());
+  // Timezone Setting State (synchronized with App settings and localStorage)
+  const [internalTimezoneMode, setInternalTimezoneMode] = useState<TimezoneMode>(() => getSavedTimezoneMode());
+  const effectiveTimezoneMode = propTimezoneMode || internalTimezoneMode;
 
   // Holiday Selection State
   const [holidayMode, setHolidayMode] = useState<HolidayMode>(() => {
@@ -75,13 +85,13 @@ export const EventsView: React.FC<EventsViewProps> = ({
   // Event category filter in list view
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'all' | EventCategory>('all');
 
-  // Selected date for day inspector
-  const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  // Selected date for day inspector (initialized in active timezone)
+  const [selectedDate, setSelectedDate] = useState<string>(() => getActiveTodayDateStr(effectiveTimezoneMode));
 
   // Quick event creator form state
   const [showQuickForm, setShowQuickForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newDate, setNewDate] = useState(new Date().toISOString().slice(0, 10));
+  const [newDate, setNewDate] = useState(() => getActiveTodayDateStr(effectiveTimezoneMode));
   const [newTime, setNewTime] = useState('12:00');
   const [newCategory, setNewCategory] = useState<EventCategory>('meeting');
 
@@ -94,8 +104,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
   // Update timezone setting
   const handleTimezoneChange = (mode: TimezoneMode) => {
-    setTimezoneMode(mode);
+    setInternalTimezoneMode(mode);
     saveTimezoneMode(mode);
+    if (propOnTimezoneModeChange) {
+      propOnTimezoneModeChange(mode);
+    }
   };
 
   // Resolve active country code based on mode
@@ -138,8 +151,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
   // Timezone label info
   const tzInfo = useMemo(() => {
-    return getTimezoneLabel(timezoneMode);
-  }, [timezoneMode, currentTimeTick]);
+    return getTimezoneLabel(effectiveTimezoneMode);
+  }, [effectiveTimezoneMode, currentTimeTick]);
 
   // Filter only event notes
   const eventNotes = useMemo(() => {
@@ -152,14 +165,15 @@ export const EventsView: React.FC<EventsViewProps> = ({
     return eventNotes.filter((n) => (n.eventCategory || 'meeting') === selectedCategoryFilter);
   }, [eventNotes, selectedCategoryFilter]);
 
-  // Events on the currently selected date
+  // Events on the currently selected date, automatically converted to the active timezone!
   const selectedDateEvents = useMemo(() => {
     return eventNotes.filter((n) => {
-      if (n.eventDate === selectedDate) return true;
+      const converted = convertEventToActiveTimezone(n.eventDate, n.eventTime, effectiveTimezoneMode);
+      if (converted.date === selectedDate) return true;
       if (n.reminderDateTime && n.reminderDateTime.startsWith(selectedDate)) return true;
       return false;
     });
-  }, [eventNotes, selectedDate]);
+  }, [eventNotes, selectedDate, effectiveTimezoneMode]);
 
   const selectedDateHoliday = useMemo(() => {
     return findHolidayForDate(selectedDate, activeCountryCode);
@@ -190,36 +204,53 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 <CalendarIcon className="w-5 h-5" />
               </span>
               <h2 className="text-xl font-bold text-stone-900 dark:text-white tracking-tight">
-                Интуитивный календарь & Категории событий
+                Интуитивный календарь & События
               </h2>
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400">
-              Категории событий с цветовой дифференциацией, авто-загрузка государственных праздников и учет часовых поясов
+              Автоматическое применение часового пояса (МСК / локальный), категории с цветами и государственные праздники
             </p>
           </div>
 
-          <button
-            onClick={() => {
-              setNewDate(selectedDate);
-              setShowQuickForm(!showQuickForm);
-            }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md shadow-purple-600/25 transition active:scale-95 shrink-0 self-start sm:self-center cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{showQuickForm ? 'Скрыть форму' : '➕ Новое событие'}</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+            {onOpenSettings && (
+              <button
+                onClick={onOpenSettings}
+                className="p-2 rounded-2xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-750 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition active:scale-95 cursor-pointer"
+                title="Открыть настройки приложения"
+              >
+                <Settings className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              </button>
+            )}
+
+            <button
+              onClick={() => {
+                setNewDate(selectedDate);
+                setShowQuickForm(!showQuickForm);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md shadow-purple-600/25 transition active:scale-95 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{showQuickForm ? 'Скрыть форму' : '➕ Новое событие'}</span>
+            </button>
+          </div>
         </div>
 
-        {/* 2. TIMEZONE SWITCHER BAR (МСК default vs Local Timezone) */}
+        {/* 2. TIMEZONE SWITCHER BAR (МСК default vs Local Timezone) WITH AUTOMATIC APPLICATION STATUS */}
         <div className="bg-stone-50 dark:bg-stone-850/80 rounded-2xl p-3 border border-stone-200/80 dark:border-stone-800 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs">
           <div className="flex items-center gap-2">
             <Globe className="w-4 h-4 text-purple-600 shrink-0" />
             <div>
-              <span className="font-bold text-stone-900 dark:text-white block">
-                Часовой пояс календаря:
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-stone-900 dark:text-white">
+                  Часовой пояс календаря:
+                </span>
+                <span className="px-1.5 py-0.2 rounded-md bg-purple-500/15 text-purple-700 dark:text-purple-300 text-[10px] font-bold border border-purple-400/30">
+                  {effectiveTimezoneMode === 'default_msk' ? '🇷🇺 МСК' : '🌐 Местное'}
+                </span>
+              </div>
               <span className="text-[11px] text-stone-500 dark:text-stone-400">
-                Текущее время: <b className="font-mono text-purple-700 dark:text-purple-400">{tzInfo.nowStr}</b> ({tzInfo.offsetStr})
+                Текущее время: <b className="font-mono text-purple-700 dark:text-purple-400">{tzInfo.nowStr}</b> ({tzInfo.offsetStr}) • Все события пересчитываются автоматически
               </span>
             </div>
           </div>
@@ -228,7 +259,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             <button
               onClick={() => handleTimezoneChange('default_msk')}
               className={`px-3 py-1.5 rounded-lg transition active:scale-95 cursor-pointer whitespace-nowrap ${
-                timezoneMode === 'default_msk'
+                effectiveTimezoneMode === 'default_msk'
                   ? 'bg-purple-600 text-white shadow-2xs font-bold'
                   : 'text-stone-700 dark:text-stone-300 hover:text-stone-900'
               }`}
@@ -239,7 +270,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             <button
               onClick={() => handleTimezoneChange('device_local')}
               className={`px-3 py-1.5 rounded-lg transition active:scale-95 cursor-pointer whitespace-nowrap ${
-                timezoneMode === 'device_local'
+                effectiveTimezoneMode === 'device_local'
                   ? 'bg-purple-600 text-white shadow-2xs font-bold'
                   : 'text-stone-700 dark:text-stone-300 hover:text-stone-900'
               }`}
@@ -341,7 +372,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
         </div>
       </div>
 
-      {/* QUICK EVENT FORM WITH CATEGORY SELECTION */}
+      {/* QUICK EVENT FORM WITH CATEGORY & TIMEZONE NOTICE */}
       {showQuickForm && (
         <form
           onSubmit={handleQuickSubmit}
@@ -416,7 +447,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             </div>
             <div>
               <label className="text-[11px] text-stone-500 dark:text-stone-400 block mb-1 font-semibold">
-                Время:
+                Время ({effectiveTimezoneMode === 'default_msk' ? 'МСК' : 'местное'}):
               </label>
               <input
                 type="time"
@@ -427,20 +458,26 @@ export const EventsView: React.FC<EventsViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-amber-900/10 dark:border-stone-800">
-            <button
-              type="button"
-              onClick={() => setShowQuickForm(false)}
-              className="px-3 py-1.5 rounded-xl text-xs text-stone-600 dark:text-stone-400 hover:text-stone-900 cursor-pointer"
-            >
-              Отмена
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
-            >
-              Сохранить событие в тетрадь
-            </button>
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-amber-900/10 dark:border-stone-800">
+            <span className="text-[10px] text-stone-500 dark:text-stone-400 font-mono">
+              Пояс: {tzInfo.label}
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowQuickForm(false)}
+                className="px-3 py-1.5 rounded-xl text-xs text-stone-600 dark:text-stone-400 hover:text-stone-900 cursor-pointer"
+              >
+                Отмена
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
+              >
+                Сохранить событие в тетрадь
+              </button>
+            </div>
           </div>
         </form>
       )}
@@ -487,10 +524,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
       {/* TAB 1: MONTH CALENDAR WIDGET & SELECTED DAY INSPECTOR */}
       {activeTab === 'calendar' && (
         <div className="space-y-4">
-          {/* Main Month Widget with Density Workload, Categories & Nearest Event */}
+          {/* Main Month Widget with Density Workload, Categories & Nearest Event (active timezone applied!) */}
           <CalendarMonthWidget
             notes={notes}
-            timezoneMode={timezoneMode}
+            timezoneMode={effectiveTimezoneMode}
             countryCode={activeCountryCode}
             onOpenNote={onOpenNote}
             selectedDate={selectedDate}
@@ -530,11 +567,12 @@ export const EventsView: React.FC<EventsViewProps> = ({
               </button>
             </div>
 
-            {/* List of events on this day with category highlights */}
+            {/* List of events on this day with automatic timezone conversion & category highlights */}
             {selectedDateEvents.length > 0 ? (
               <div className="space-y-2">
                 {selectedDateEvents.map((evt) => {
                   const catConfig = EVENT_CATEGORY_CONFIG[evt.eventCategory || 'meeting'];
+                  const converted = convertEventToActiveTimezone(evt.eventDate, evt.eventTime, effectiveTimezoneMode);
                   return (
                     <div
                       key={evt.id}
@@ -557,11 +595,23 @@ export const EventsView: React.FC<EventsViewProps> = ({
                         </button>
 
                         <div className="truncate">
-                          <div className="flex items-center gap-1.5 mb-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                             <span className={`inline-flex items-center gap-1 px-2 py-0.2 rounded-md text-[10px] font-bold border shadow-2xs ${catConfig.badgeClass}`}>
                               <span>{catConfig.icon}</span>
                               <span>{catConfig.label}</span>
                             </span>
+                            {converted.isConverted ? (
+                              <span
+                                className="px-1.5 py-0.2 rounded-md bg-purple-500/15 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-mono text-[10px] font-bold border border-purple-400/20"
+                                title={`Время в оригинале: ${converted.originalMskTime} по МСК`}
+                              >
+                                {converted.time} (местное) • {converted.originalMskTime} МСК
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.2 rounded-md bg-stone-200/80 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-mono text-[10px] font-bold">
+                                {converted.time} МСК
+                              </span>
+                            )}
                           </div>
                           <span
                             className={`font-bold text-xs block truncate ${
@@ -574,7 +624,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
                           </span>
                           <span className="text-[11px] text-stone-500 dark:text-stone-400 flex items-center gap-1 font-mono">
                             <Clock className="w-3 h-3 text-purple-600" />
-                            <span>{evt.eventTime || '12:00'}</span>
+                            <span>{converted.time} ({effectiveTimezoneMode === 'default_msk' ? 'МСК' : 'местное'})</span>
                           </span>
                         </div>
                       </div>
@@ -602,7 +652,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
         </div>
       )}
 
-      {/* TAB 2: FULL EVENTS LIST WITH CATEGORY FILTERS & COLOR HIGHLIGHTING */}
+      {/* TAB 2: FULL EVENTS LIST WITH AUTOMATIC TIMEZONE CONVERSION & CATEGORY FILTERS */}
       {activeTab === 'list' && (
         <div className="space-y-3">
           {/* Category Filter Pills */}
@@ -664,6 +714,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
           ) : (
             filteredEventNotes.map((evt) => {
               const catConfig = EVENT_CATEGORY_CONFIG[evt.eventCategory || 'meeting'];
+              const converted = convertEventToActiveTimezone(evt.eventDate, evt.eventTime, effectiveTimezoneMode);
               return (
                 <div
                   key={evt.id}
@@ -686,11 +737,16 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     </button>
 
                     <div className="truncate">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border shadow-2xs ${catConfig.badgeClass}`}>
                           <span>{catConfig.icon}</span>
                           <span>{catConfig.label}</span>
                         </span>
+                        {converted.isConverted && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-purple-500/10 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-mono text-[10px] font-bold border border-purple-400/20">
+                            {converted.time} (местн.) • {converted.originalMskTime} МСК
+                          </span>
+                        )}
                       </div>
                       <h4
                         className={`font-bold text-sm truncate ${
@@ -701,10 +757,15 @@ export const EventsView: React.FC<EventsViewProps> = ({
                       >
                         {evt.title || 'Событие'}
                       </h4>
-                      <p className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-2 mt-0.5 font-mono">
-                        <span>📅 {evt.eventDate || 'Без даты'}</span>
+                      <p className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-2 mt-0.5 font-mono flex-wrap">
+                        <span>📅 {converted.date}</span>
                         <span>•</span>
-                        <span>⏰ {evt.eventTime || '12:00'}</span>
+                        <span>⏰ {converted.time} ({effectiveTimezoneMode === 'default_msk' ? 'МСК' : 'местное'})</span>
+                        {converted.dateShifted && (
+                          <span className="text-[10px] text-amber-600 dark:text-amber-400 font-sans font-bold">
+                            (дата пересчитана из-за пояса)
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
