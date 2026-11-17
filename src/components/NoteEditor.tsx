@@ -69,10 +69,19 @@ import {
   POPULAR_TAGS,
   normalizeTag,
 } from '../services/aiTagging';
-import { nativeHaptic } from '../services/nativeBridge';
+import {
+  nativeHaptic,
+  isAndroidNativeApp,
+  getAndroidNotificationStatus,
+  requestAndroidBatteryExemption,
+  AndroidNotificationStatus,
+} from '../services/nativeBridge';
+
+import { getGlobalAutoCalculate } from '../services/storage';
 
 interface NoteEditorProps {
   note: Note;
+  globalAutoCalculate?: boolean;
   onUpdate: (updated: Note) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
@@ -81,6 +90,7 @@ interface NoteEditorProps {
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
   note,
+  globalAutoCalculate,
   onUpdate,
   onDelete,
   onClose,
@@ -88,9 +98,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 }) => {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
-  const [category, setCategory] = useState<NoteCategory>(
-    note.category === 'payment' ? 'payment' : (note.category || 'note')
-  );
+  const [category, setCategory] = useState<NoteCategory>(note.category || 'note');
+  const autoCalculate = globalAutoCalculate !== undefined ? globalAutoCalculate : getGlobalAutoCalculate();
   const [isPinned, setIsPinned] = useState(note.isPinned || false);
   const [eventDate, setEventDate] = useState(note.eventDate || '');
   const [eventTime, setEventTime] = useState(note.eventTime || '');
@@ -102,7 +111,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [showPaperMenu, setShowPaperMenu] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
-  // Push Notifications & Reminders state
+  // Push Notifications & Reminders state (OS-level on Android, Web Push fallback in browser)
   const [reminderEnabled, setReminderEnabled] = useState(note.reminderEnabled || false);
   const [reminderDateTime, setReminderDateTime] = useState<string>(() => {
     if (note.reminderDateTime) return note.reminderDateTime;
@@ -115,7 +124,26 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [notifPermission, setNotifPermission] = useState<NotificationPermissionState>(() =>
     getNotificationPermission()
   );
+  const [androidStatus, setAndroidStatus] = useState<AndroidNotificationStatus | null>(() =>
+    getAndroidNotificationStatus()
+  );
   const [testNotifSent, setTestNotifSent] = useState(false);
+
+  useEffect(() => {
+    if (!isAndroidNativeApp()) return;
+    const prevCallback = window.onNativePermissionResult;
+    window.onNativePermissionResult = (json: string) => {
+      try {
+        const parsed = JSON.parse(json) as AndroidNotificationStatus;
+        setAndroidStatus(parsed);
+        setNotifPermission(parsed.notificationsEnabled ? 'granted' : 'denied');
+      } catch {}
+      if (prevCallback) prevCallback(json);
+    };
+    return () => {
+      window.onNativePermissionResult = prevCallback;
+    };
+  }, []);
 
   // Tags & AI Auto-tagging state
   const [tags, setTags] = useState<string[]>(note.tags || []);
@@ -306,8 +334,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Auto-analysis of math and shopping strictly according to note category
-  const mathSummary = useMemo(() => analyzeNote(content, category), [content, category]);
+  // Auto-analysis of math and shopping automatically when autoCalculate !== false
+  const mathSummary = useMemo(
+    () => analyzeNote(content, category, autoCalculate),
+    [content, category, autoCalculate]
+  );
   const shoppingItems = useMemo(() => extractShoppingItems(content), [content]);
 
   // Synchronize state changes back to parent
@@ -619,10 +650,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const handleInsertGrandTotal = () => {
     triggerHaptic();
     let label = 'Итого:';
-    if (category === 'payment') {
-      label = mathSummary.hasIncomeExpenseSplit ? 'Остаток в итоге:' : 'Итого к оплате:';
-    } else if (category === 'calculation') {
-      label = mathSummary.currency === 'шт.' ? 'Итого количество:' : 'Итого результат:';
+    if (mathSummary.hasIncomeExpenseSplit) {
+      label = 'Остаток в итоге:';
+    } else if (mathSummary.currency === 'шт.') {
+      label = 'Итого количество:';
+    } else if (mathSummary.currency) {
+      label = 'Итого к оплате:';
+    } else {
+      label = 'Итого результат:';
     }
     const totalStr = `\n\n${label} ${formatMoney(mathSummary.grandTotal, mathSummary.currency)}`;
     setContent((prev) => prev + totalStr);
@@ -802,26 +837,27 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       </div>
 
-      {/* CATEGORY SELECTOR & QUICK STATUS (Compact when keyboard is open or card is lifted) */}
+      {/* UNIFIED SCROLLABLE BODY: Enables full-page vertical scrolling in Events & Notes */}
+      <div className="flex-1 overflow-y-auto overscroll-y-contain flex flex-col min-h-0">
+
+      {/* SIMPLIFIED 3-MODE SELECTOR & QUICK STATUS (Compact when keyboard is open or card is lifted) */}
       {shouldLiftCard ? (
         <div className="px-3 sm:px-4 py-1.5 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-2 shrink-0 text-xs">
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none min-w-0">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-900 dark:text-amber-300 font-bold text-[11px] shrink-0">
-              {category === 'payment' && <Wallet className="w-3 h-3 text-amber-600" />}
-              {category === 'calculation' && <Calculator className="w-3 h-3 text-teal-600" />}
-              {category === 'shopping' && <ShoppingCart className="w-3 h-3 text-emerald-600" />}
-              {category === 'event' && <Calendar className="w-3 h-3 text-purple-600" />}
-              {category === 'note' && <FileText className="w-3 h-3 text-blue-600" />}
+              {category === 'shopping' ? (
+                <ShoppingCart className="w-3 h-3 text-emerald-600" />
+              ) : category === 'event' ? (
+                <Calendar className="w-3 h-3 text-purple-600" />
+              ) : (
+                <FileText className="w-3 h-3 text-blue-600" />
+              )}
               <span>
-                {category === 'payment'
-                  ? 'Финансы (деньги ₽)'
-                  : category === 'calculation'
-                  ? 'Расчёт (штуки/счет)'
-                  : category === 'shopping'
+                {category === 'shopping'
                   ? 'Покупки'
                   : category === 'event'
-                  ? 'События'
-                  : 'Заметка (без расчетов)'}
+                  ? 'Событие'
+                  : 'Заметка (умный лист)'}
               </span>
             </span>
             {tags.slice(0, 3).map((t) => (
@@ -847,16 +883,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       ) : (
         <div className="px-3 sm:px-4 py-2 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5" data-no-swipe="true">
+          <div className="grid grid-cols-3 gap-1.5" data-no-swipe="true">
           {[
-            { id: 'note', label: 'Заметка', icon: FileText, activeClass: 'bg-blue-600 text-white', tip: 'Без расчетов' },
-            { id: 'payment', label: 'Финансы', icon: Wallet, activeClass: 'bg-amber-600 text-white', tip: 'Расчеты в деньгах (₽)' },
-            { id: 'calculation', label: 'Расчёт', icon: Calculator, activeClass: 'bg-teal-600 text-white', tip: 'Счет всего кроме денег (штуки, арифметика)' },
-            { id: 'shopping', label: 'Покупки', icon: ShoppingCart, activeClass: 'bg-emerald-600 text-white', tip: 'Список товаров' },
-            { id: 'event', label: 'События', icon: Calendar, activeClass: 'bg-purple-600 text-white', tip: 'Планы и встречи' },
+            { id: 'note', label: '📝 Заметка', icon: FileText, activeClass: 'bg-blue-600 text-white', tip: 'Универсальная заметка: расчёты начинаются автоматически' },
+            { id: 'shopping', label: '🛒 Покупки', icon: ShoppingCart, activeClass: 'bg-emerald-600 text-white', tip: 'Список товаров с отметками' },
+            { id: 'event', label: '📅 Событие', icon: Calendar, activeClass: 'bg-purple-600 text-white', tip: 'Планы, встречи и будильник' },
           ].map((cat) => {
             const Icon = cat.icon;
-            const isSelected = category === cat.id || (cat.id === 'note' && category === 'general');
+            const isSelected =
+              cat.id === 'note'
+                ? category !== 'shopping' && category !== 'event'
+                : category === cat.id;
             return (
               <button
                 key={cat.id}
@@ -864,15 +901,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   triggerHaptic();
                   setCategory(cat.id as NoteCategory);
                 }}
-                className={`flex-1 min-w-[76px] flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer whitespace-nowrap ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer whitespace-nowrap ${
                   isSelected
                     ? `${cat.activeClass} shadow-xs`
                     : 'bg-stone-200/80 dark:bg-stone-800/80 text-stone-700 dark:text-stone-300 hover:bg-stone-300/80 dark:hover:bg-stone-700'
                 }`}
                 title={cat.tip}
               >
-                <Icon className="w-3 h-3 shrink-0" />
-                <span>{cat.label}</span>
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span>{cat.label.replace(/^[^\s]+\s/, '')}</span>
               </button>
             );
           })}
@@ -1041,34 +1078,55 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     />
                   </div>
 
-                  {/* Browser permission button / test chime */}
-                  {notifPermission !== 'granted' ? (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const granted = await requestNotificationPermission();
-                        setNotifPermission(granted ? 'granted' : 'denied');
-                      }}
-                      className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-[11px] transition shadow-xs cursor-pointer flex items-center gap-1 shrink-0"
-                    >
-                      <Bell className="w-3 h-3" />
-                      <span>Разрешить Push в браузере</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await sendTestNotification();
-                        setTestNotifSent(true);
-                        setTimeout(() => setTestNotifSent(false), 2500);
-                      }}
-                      className="px-2.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 font-medium text-[11px] transition cursor-pointer flex items-center gap-1 shrink-0"
-                      title="Проверить громкость звука и доставку пуш-уведомления"
-                    >
-                      <Volume2 className="w-3 h-3 text-emerald-600" />
-                      <span>{testNotifSent ? '✓ Звук и пуш отправлены!' : 'Тест звука & пуша'}</span>
-                    </button>
-                  )}
+                  {/* System Android or Browser permission button / test alarm */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {notifPermission !== 'granted' ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const granted = await requestNotificationPermission();
+                          setNotifPermission(granted ? 'granted' : 'denied');
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-[11px] transition shadow-xs cursor-pointer flex items-center gap-1 shrink-0"
+                      >
+                        <Bell className="w-3 h-3" />
+                        <span>
+                          {isAndroidNativeApp() ? 'Разрешить уведомления Android' : 'Разрешить уведомления'}
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await sendTestNotification();
+                          setTestNotifSent(true);
+                          setTimeout(() => setTestNotifSent(false), 2500);
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 font-medium text-[11px] transition cursor-pointer flex items-center gap-1 shrink-0"
+                        title="Проверить системный будильник и уведомление"
+                      >
+                        <Volume2 className="w-3 h-3 text-emerald-600" />
+                        <span>
+                          {testNotifSent
+                            ? '✓ Сигнал отправлен!'
+                            : isAndroidNativeApp()
+                            ? 'Тест будильника Android'
+                            : 'Тест звука & пуша'}
+                        </span>
+                      </button>
+                    )}
+
+                    {isAndroidNativeApp() && androidStatus && !androidStatus.batteryOptimizationIgnored && (
+                      <button
+                        type="button"
+                        onClick={() => requestAndroidBatteryExemption()}
+                        className="px-2.5 py-1.5 rounded-xl bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 border border-purple-300 dark:border-purple-700 font-bold text-[11px] transition cursor-pointer shrink-0"
+                        title="Чтобы будильник звонил даже в спящем режиме и на заблокированном экране"
+                      >
+                        ⚡ Работа в фоне Android
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Quick Reminder Preset Chips */}
@@ -1209,11 +1267,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               ? 'Название события или встречи...'
               : category === 'shopping'
               ? 'Список покупок в тетрадке...'
-              : category === 'payment'
-              ? 'Учет доходов, расходов и баланса (в деньгах ₽)...'
-              : category === 'calculation'
-              ? 'Расчет количества, штук, материалов (без денег)...'
-              : 'Заголовок заметки (без расчетов)...'
+              : 'Заголовок страницы (расчёты идут автоматически)...'
           }
           className={`w-full bg-transparent font-bold text-stone-900 dark:text-white placeholder-stone-500/70 dark:placeholder-stone-400 focus:outline-none font-mono ${
             shouldLiftCard ? 'text-sm sm:text-base' : 'text-base sm:text-lg'
@@ -1323,8 +1377,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       </div>
       )}
 
-      {/* FINANCIAL BREAKDOWN PANEL: ПРИБЫЛЬ vs РАСХОДЫ vs ОСТАТОК (Только для категории Финансы) */}
-      {category === 'payment' && (
+      {/* FINANCIAL BREAKDOWN PANEL: ПРИБЫЛЬ vs РАСХОДЫ vs ОСТАТОК (Показывается автоматически при наличии доходов и расходов) */}
+      {autoCalculate && mathSummary.hasIncomeExpenseSplit && (
         shouldLiftCard ? (
           /* COMPACT LIFTED STRIP: Gives maximum vertical space to notebook */
           <div className="mx-2.5 sm:mx-3 mt-1.5 px-3 py-1.5 bg-white/95 dark:bg-stone-900/90 border border-amber-900/15 dark:border-stone-800 rounded-xl shadow-2xs flex items-center justify-between gap-1.5 text-xs shrink-0 transition-all">
@@ -1849,8 +1903,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
+      {/* Global auto-calculation is now managed centrally via App Settings / Control Panel */}
+
       {/* НАСТОЯЩИЙ ЛИСТ БУМАГИ С ПОЛЯМИ, ПЕРФОРАЦИЕЙ И СПИРАЛЬЮ */}
-      <div className="flex-1 flex overflow-hidden relative m-2.5 sm:m-3 rounded-2xl border border-amber-900/15 dark:border-stone-700/80 notebook-paper-shadow page-dog-ear">
+      <div className="flex-1 min-h-[380px] sm:min-h-[460px] flex overflow-hidden relative m-2.5 sm:m-3 rounded-2xl border border-amber-900/15 dark:border-stone-700/80 notebook-paper-shadow page-dog-ear">
         {/* Notebook Spiral Left Border (Реалистичные кольца тетради) */}
         <div className="w-3.5 sm:w-4 bg-gradient-to-r from-amber-100 via-amber-200 to-amber-100 dark:from-stone-900 dark:via-stone-800 dark:to-stone-900 border-r border-amber-300/60 dark:border-stone-700/80 flex flex-col justify-around py-3 shrink-0 select-none">
           {[...Array(14)].map((_, i) => (
@@ -2004,6 +2060,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       </div>
 
+      {/* Close Unified Scrollable Body */}
+      </div>
+
       {/* Copied toast notification */}
       {copiedText && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white font-semibold text-xs px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 animate-bounce">
@@ -2012,52 +2071,36 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
-      {/* Floating Cashflow / Grand Total Bar (Visible only for payment, calculation, and shopping when calculated) */}
-      {category !== 'note' && category !== 'general' && (mathSummary.totalCalculatedLines > 0 || (mathSummary.totalPieces || 0) > 0) && !shouldLiftCard && (
-        <div className="mx-3 sm:mx-4 mb-2 bg-white/95 dark:bg-stone-900/95 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md transition-all">
+      {/* Floating Cashflow / Grand Total Bar (Automatic whenever autoCalculate is ON and numbers/pieces are found) */}
+      {autoCalculate && (mathSummary.totalCalculatedLines > 0 || (mathSummary.totalPieces || 0) > 0) && !shouldLiftCard && (
+        <div className="mx-3 sm:mx-4 mb-2 bg-white/95 dark:bg-stone-900/95 border border-amber-900/15 dark:border-stone-800 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md transition-all shrink-0">
           <div className="flex items-center gap-2">
-            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-              category === 'calculation'
-                ? 'bg-teal-500/15 text-teal-700 dark:text-teal-400'
-                : 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
-            }`}>
-              {category === 'calculation' ? <Calculator className="w-4 h-4" /> : <Wallet className="w-4 h-4" />}
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-amber-500/15 text-amber-700 dark:text-amber-400">
+              {mathSummary.currency ? <Wallet className="w-4 h-4" /> : <Calculator className="w-4 h-4" />}
             </div>
             <div>
               <span className="text-[11px] text-stone-600 dark:text-stone-400 uppercase font-bold tracking-wide">
-                {category === 'calculation'
-                  ? (mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
-                      ? 'Итого количество:'
-                      : 'Итого результат:')
-                  : (mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
-                      ? 'Итого количество:'
-                      : mathSummary.hasIncomeExpenseSplit
-                      ? 'Остаток в итоге:'
-                      : 'Итого к оплате:')}
+                {mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
+                  ? 'Итого количество:'
+                  : mathSummary.hasIncomeExpenseSplit
+                  ? 'Остаток в итоге:'
+                  : mathSummary.currency
+                  ? 'Итого сумма:'
+                  : 'Итого результат:'}
               </span>
               <div className="text-base sm:text-lg font-bold text-stone-900 dark:text-white font-mono leading-none">
-                {category === 'calculation'
-                  ? (mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
-                      ? `${mathSummary.totalPieces || 0} шт.`
-                      : (mathSummary.totalPieces || 0) > 0
-                      ? `${formatMoney(mathSummary.grandTotal, '')} (${mathSummary.totalPieces} шт.)`
-                      : `= ${formatMoney(mathSummary.grandTotal, '')}`)
-                  : (mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
-                      ? `${mathSummary.totalPieces || 0} шт.`
-                      : (mathSummary.totalPieces || 0) > 0
-                      ? `${formatMoney(mathSummary.grandTotal, mathSummary.currency)} | ${mathSummary.totalPieces} шт.`
-                      : formatMoney(mathSummary.grandTotal, mathSummary.currency))}
+                {mathSummary.currency === 'шт.' || (mathSummary.grandTotal === 0 && (mathSummary.totalPieces || 0) > 0)
+                  ? `${mathSummary.totalPieces || 0} шт.`
+                  : (mathSummary.totalPieces || 0) > 0
+                  ? `${formatMoney(mathSummary.grandTotal, mathSummary.currency)} | ${mathSummary.totalPieces} шт.`
+                  : formatMoney(mathSummary.grandTotal, mathSummary.currency)}
               </div>
             </div>
           </div>
 
           <button
             onClick={handleInsertGrandTotal}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-white font-bold text-xs transition active:scale-95 shadow cursor-pointer shrink-0 ${
-              category === 'calculation'
-                ? 'bg-teal-600 hover:bg-teal-500'
-                : 'bg-amber-600 hover:bg-amber-500'
-            }`}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-white font-bold text-xs transition active:scale-95 shadow cursor-pointer shrink-0 bg-amber-600 hover:bg-amber-500"
           >
             <PlusCircle className="w-3.5 h-3.5" />
             <span>Вставить в тетрадь</span>
@@ -2107,34 +2150,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           <span>Расшифровка</span>
         </button>
 
-        {(category === 'payment'
+        {(autoCalculate
           ? [
-              { label: '🟢 + Доход', insert: '\n+ Зарплата: 50 000 руб' },
+              { label: '🟢 + Доход', insert: '\n+ Доход: 50 000 руб' },
               { label: '🔴 - Расход', insert: '\n- Трата: 2 500 руб' },
-              { label: '💰 Баланс:', insert: '\n\nОстаток в итоге: ' },
               { label: '₽', insert: ' руб' },
-              { label: '+', insert: ' + ' },
-              { label: '-', insert: ' - ' },
-              { label: '%', insert: '%' },
-              { label: '-10%', insert: ' - 10%' },
-              { label: 'к (1000)', insert: 'к' },
-              { label: '• Список', insert: '\n• ' },
-              { label: '⏰ Время', insert: ` ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} ` },
-            ]
-          : category === 'calculation'
-          ? [
               { label: '+', insert: ' + ' },
               { label: '-', insert: ' - ' },
               { label: '×', insert: ' * ' },
               { label: '÷', insert: ' / ' },
-              { label: '=', insert: ' = ' },
               { label: '%', insert: '%' },
               { label: '📦 шт.', insert: ' шт' },
-              { label: 'м', insert: ' м' },
-              { label: 'кг', insert: ' кг' },
-              { label: 'л', insert: ' л' },
-              { label: 'к', insert: 'к' },
-              { label: '🧮 Итого:', insert: '\n\nИтого результат: ' },
+              { label: '- [ ]', insert: '\n- [ ] ' },
               { label: '• Список', insert: '\n• ' },
               { label: '⏰ Время', insert: ` ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} ` },
             ]

@@ -27,10 +27,11 @@ export function useSwipeBack({
       if (e.touches.length !== 1) return;
 
       const target = e.target as HTMLElement | null;
-      // Do not trigger swipe-back if touching horizontal toolbars, scrollable menus, buttons or inputs
+      // Do not trigger swipe-back if touching horizontal toolbars, vertical scrollers, buttons or inputs
       if (
         target &&
         (target.closest('.overflow-x-auto') ||
+          target.closest('.overflow-y-auto') ||
           target.closest('[data-no-swipe]') ||
           target.closest('.no-swipe') ||
           target.closest('header') ||
@@ -57,8 +58,8 @@ export function useSwipeBack({
       const deltaX = currentX - touchStartX.current;
       const deltaY = currentY - touchStartY.current;
 
-      // Only handle clear horizontal swipe from screen margin or outside menus
-      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 25) {
+      // Only handle clear left-edge horizontal swipe so vertical scroll is never blocked
+      if (touchStartX.current < 35 && deltaX > 20 && Math.abs(deltaX) > Math.abs(deltaY) * 1.8) {
         if (e.cancelable) {
           e.preventDefault();
         }

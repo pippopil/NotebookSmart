@@ -12,12 +12,16 @@ import {
 
 interface CalculatorViewProps {
   notes: Note[];
+  globalAutoCalculate?: boolean;
+  onToggleGlobalAutoCalculate?: (enabled: boolean) => void;
   onOpenNote: (note: Note) => void;
   onCreatePaymentNote: () => void;
 }
 
 export const CalculatorView: React.FC<CalculatorViewProps> = ({
   notes,
+  globalAutoCalculate = true,
+  onToggleGlobalAutoCalculate,
   onOpenNote,
   onCreatePaymentNote,
 }) => {
@@ -33,21 +37,39 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
   const [copiedRes, setCopiedRes] = useState<string | null>(null);
   const [filterTag, setFilterTag] = useState<string | null>(null);
 
-  // Scratchpad live calculations
-  const scratchpadSummary = useMemo(() => analyzeNote(scratchpadText), [scratchpadText]);
+  // Scratchpad live calculations (explicitly in money mode)
+  const scratchpadSummary = useMemo(() => analyzeNote(scratchpadText, 'payment', true), [scratchpadText]);
 
-  // Aggregate stats across all saved notes
-  const totalExpensesAllNotes = useMemo(() => {
-    let sum = 0;
+  // Aggregate financial stats across all active notes when globalAutoCalculate is ON
+  const financialTotals = useMemo(() => {
+    if (!globalAutoCalculate) {
+      return { totalIncome: 0, totalExpenses: 0, netSum: 0, count: 0 };
+    }
+    let totalIncome = 0;
+    let totalExpenses = 0;
+    let netSum = 0;
     let count = 0;
+
     notes.forEach((n) => {
-      if (n.cachedTotal) {
-        sum += n.cachedTotal;
+      if (n.isArchived) return;
+      const inc = n.cachedIncome || 0;
+      const exp = n.cachedExpenses || 0;
+      const tot = n.cachedTotal || 0;
+      const hasMoney =
+        inc > 0 ||
+        exp > 0 ||
+        Boolean(n.currency && ['₽', 'руб', '$', '€'].includes(n.currency)) ||
+        n.category === 'payment' ||
+        n.category === 'budget';
+      if (hasMoney && (inc > 0 || exp > 0 || tot !== 0)) {
+        totalIncome += inc;
+        totalExpenses += exp > 0 ? exp : inc === 0 && tot > 0 ? tot : 0;
+        netSum += inc > 0 || exp > 0 ? inc - exp : tot;
         count++;
       }
     });
-    return { sum, count };
-  }, [notes]);
+    return { totalIncome, totalExpenses, netSum, count };
+  }, [notes, globalAutoCalculate]);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -66,45 +88,85 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
                 <Calculator className="w-5 h-5" />
               </span>
               <h2 className="text-xl font-bold text-stone-900 dark:text-white tracking-tight">
-                Оплаты & Финансовый расчет
+                Финансы — общий отчёт по всем заметкам
               </h2>
             </div>
-            <p className="text-xs text-stone-500 dark:text-stone-400">
-              Автоматический подсчет всех сумм, счетов и математических выражений
+            <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed max-w-xl">
+              Здесь автоматически собираются все денежные суммы, доходы (<b className="text-emerald-600">+</b>) и расходы (<b className="text-rose-600">-</b>) из любых ваших заметок, строится диаграмма трат по #тегам и доступен быстрый калькулятор.
             </p>
           </div>
 
-          <button
-            onClick={onCreatePaymentNote}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition active:scale-95 shrink-0 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Новый счет / оплата</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {onToggleGlobalAutoCalculate && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={globalAutoCalculate}
+                onClick={() => onToggleGlobalAutoCalculate(!globalAutoCalculate)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition active:scale-95 cursor-pointer ${
+                  globalAutoCalculate
+                    ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
+                    : 'bg-stone-100 dark:bg-stone-850 border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                }`}
+              >
+                <span>Автоматический расчёт</span>
+                <div
+                  className={`w-9 h-5 flex items-center rounded-full p-0.5 transition ${
+                    globalAutoCalculate ? 'bg-emerald-600' : 'bg-stone-300 dark:bg-stone-700'
+                  }`}
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow transform transition duration-200 ${
+                      globalAutoCalculate ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </div>
+              </button>
+            )}
+
+            <button
+              onClick={onCreatePaymentNote}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition active:scale-95 shrink-0 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Новая запись о финансах</span>
+            </button>
+          </div>
         </div>
 
+        {!globalAutoCalculate && (
+          <div className="mt-3 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300/70 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200">
+            Глобальный <b>Автоматический расчёт</b> сейчас выключен — финансовые выражения во всех заметках не парсятся. Включите тумблер выше или в настройках приложения, чтобы вернуть подсчёты.
+          </div>
+        )}
+
         {/* Global Summary Metric */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4 pt-4 border-t border-amber-900/10 dark:border-stone-800">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-amber-900/10 dark:border-stone-800">
           <div className="bg-emerald-50/70 dark:bg-stone-950/60 rounded-2xl p-3 border border-emerald-200/60 dark:border-stone-800/80">
-            <span className="text-[11px] text-stone-500 dark:text-stone-400 block mb-0.5">Всего по всем заметкам</span>
-            <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400 font-mono">
-              {formatMoney(totalExpensesAllNotes.sum, '₽')}
+            <span className="text-[11px] text-stone-500 dark:text-stone-400 block mb-0.5">🟢 Доходы</span>
+            <span className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-400 font-mono">
+              +{formatMoney(financialTotals.totalIncome, '₽')}
+            </span>
+          </div>
+
+          <div className="bg-rose-50/70 dark:bg-stone-950/60 rounded-2xl p-3 border border-rose-200/60 dark:border-stone-800/80">
+            <span className="text-[11px] text-stone-500 dark:text-stone-400 block mb-0.5">🔴 Расходы</span>
+            <span className="text-base sm:text-lg font-bold text-rose-700 dark:text-rose-400 font-mono">
+              −{formatMoney(financialTotals.totalExpenses, '₽')}
             </span>
           </div>
 
           <div className="bg-amber-50/70 dark:bg-stone-950/60 rounded-2xl p-3 border border-amber-200/60 dark:border-stone-800/80">
-            <span className="text-[11px] text-stone-500 dark:text-stone-400 block mb-0.5">Заметок с оплатами</span>
-            <span className="text-lg font-bold text-amber-700 dark:text-amber-400 font-mono">
-              {totalExpensesAllNotes.count} шт.
+            <span className="text-[11px] text-stone-500 dark:text-stone-400 block mb-0.5">💰 Общий остаток</span>
+            <span className={`text-base sm:text-lg font-bold font-mono ${financialTotals.netSum >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
+              {formatMoney(financialTotals.netSum, '₽')}
             </span>
           </div>
 
-          <div className="bg-stone-50 dark:bg-stone-950/60 rounded-2xl p-3 border border-stone-200 dark:border-stone-800/80 col-span-2 sm:col-span-1">
-            <span className="text-[11px] text-stone-500 dark:text-stone-400 block mb-0.5">Средний чек заметки</span>
-            <span className="text-lg font-bold text-stone-800 dark:text-stone-200 font-mono">
-              {totalExpensesAllNotes.count > 0
-                ? formatMoney(Math.round(totalExpensesAllNotes.sum / totalExpensesAllNotes.count), '₽')
-                : '0 ₽'}
+          <div className="bg-stone-50 dark:bg-stone-950/60 rounded-2xl p-3 border border-stone-200 dark:border-stone-800/80">
+            <span className="text-[11px] text-stone-500 dark:text-stone-400 block mb-0.5">📄 Заметок с деньгами</span>
+            <span className="text-base sm:text-lg font-bold text-stone-800 dark:text-stone-200 font-mono">
+              {financialTotals.count} шт.
             </span>
           </div>
         </div>
@@ -113,15 +175,16 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
       {/* VISUAL RECHARTS SPENDING REPORT (Categorized by note tags) */}
       <SpendingReportChart
         notes={notes}
+        globalAutoCalculate={globalAutoCalculate}
         onSelectTag={(tag) => setFilterTag(filterTag === tag ? null : tag)}
       />
 
       {/* SMART FINANCIAL SCRATCHPAD (Live Smart Notebook Calculator) */}
       <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 mb-6 shadow-sm transition-colors">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-1">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <h3 className="font-bold text-base text-stone-900 dark:text-white">Умный блокнот-калькулятор</h3>
+            <h3 className="font-bold text-base text-stone-900 dark:text-white">Быстрый финансовый черновик</h3>
           </div>
           <span className="text-xs text-stone-500 dark:text-stone-400">
             Пишите числа, проценты и слова — результат считается на лету
@@ -184,12 +247,12 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
         )}
       </div>
 
-      {/* Existing Payment Notes List */}
+      {/* Existing Notes with Financial Totals */}
       <div className="bg-white/80 dark:bg-stone-900/60 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 shadow-2xs">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-bold text-base text-stone-900 dark:text-white flex items-center gap-2">
             <Receipt className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            <span>Заметки со счетами и оплатами</span>
+            <span>Все заметки с финансовыми расчётами</span>
           </h3>
           {filterTag && (
             <button
@@ -202,8 +265,17 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
         </div>
 
         <div className="space-y-2.5">
-          {notes
-            .filter((n) => (n.cachedTotal || 0) > 0 || n.category === 'payment')
+          {!globalAutoCalculate ? (
+            <p className="text-xs text-stone-500 dark:text-stone-400 py-4 text-center">
+              Автоматический расчёт отключён во всех заметках. Включите переключатель выше для отображения списка финансовых заметок.
+            </p>
+          ) : (
+            notes
+            .filter(
+              (n) =>
+                !n.isArchived &&
+                ((n.cachedTotal || 0) !== 0 || (n.cachedIncome || 0) > 0 || (n.cachedExpenses || 0) > 0 || n.category === 'payment')
+            )
             .filter((n) => {
               if (!filterTag) return true;
               return (n.tags || []).some(
@@ -216,8 +288,8 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
                 onClick={() => onOpenNote(n)}
                 className="bg-white dark:bg-stone-950/80 hover:bg-stone-50 dark:hover:bg-stone-950 border border-stone-200 dark:border-stone-800 hover:border-amber-400 dark:hover:border-stone-700 rounded-2xl p-3.5 flex items-center justify-between cursor-pointer transition shadow-2xs"
               >
-                <div>
-                  <h4 className="font-semibold text-sm text-stone-900 dark:text-white">{n.title || 'Счет'}</h4>
+                <div className="min-w-0 pr-3">
+                  <h4 className="font-semibold text-sm text-stone-900 dark:text-white truncate">{n.title || 'Заметка с расчётом'}</h4>
                   <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-1 mt-0.5">{n.content}</p>
                 </div>
                 <div className="text-right shrink-0">
@@ -227,7 +299,8 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
                   <span className="text-[10px] text-stone-400">Открыть →</span>
                 </div>
               </div>
-            ))}
+            ))
+          )}
         </div>
       </div>
     </div>

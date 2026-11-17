@@ -43,7 +43,7 @@ public class AndroidNativeBridge {
 
     @JavascriptInterface
     public String getNativeVersion() {
-        return "Enhanced-Hybrid v1.9.6";
+        return "Enhanced-Hybrid v2.0.4";
     }
 
     /**
@@ -83,7 +83,7 @@ public class AndroidNativeBridge {
     }
 
     /**
-     * Updates Home Screen Widget data from React state (Shopping list, remaining count, budget)
+     * Updates Home Screen Calendar + Event/Reminder/Task Widget data from React state
      */
     @JavascriptInterface
     public boolean updateWidgetData(String jsonString) {
@@ -115,6 +115,39 @@ public class AndroidNativeBridge {
                 editor.putString(NotebookWidgetProvider.KEY_REMAINING, "");
             }
 
+            JSONObject eventsByDate = obj.optJSONObject("eventsByDate");
+            editor.putString(
+                NotebookWidgetProvider.KEY_EVENTS_BY_DATE,
+                eventsByDate != null ? eventsByDate.toString() : "{}"
+            );
+
+            JSONObject nearestEvent = obj.optJSONObject("nearestEvent");
+            if (nearestEvent != null) {
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_EVENT_TITLE, nearestEvent.optString("title", "Событие"));
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_EVENT_SUB, nearestEvent.optString("subtitle", ""));
+            } else {
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_EVENT_TITLE, "Нет ближайших");
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_EVENT_SUB, "Нажмите + чтобы добавить");
+            }
+
+            JSONObject nearestReminder = obj.optJSONObject("nearestReminder");
+            if (nearestReminder != null) {
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_REMINDER_TITLE, nearestReminder.optString("title", "Напоминание"));
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_REMINDER_SUB, nearestReminder.optString("subtitle", ""));
+            } else {
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_REMINDER_TITLE, "Не назначено");
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_REMINDER_SUB, "—");
+            }
+
+            JSONObject nearestTask = obj.optJSONObject("nearestTask");
+            if (nearestTask != null) {
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_TASK_TITLE, nearestTask.optString("title", "Задание"));
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_TASK_SUB, nearestTask.optString("subtitle", ""));
+            } else {
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_TASK_TITLE, "Все выполнены");
+                editor.putString(NotebookWidgetProvider.KEY_NEAREST_TASK_SUB, "—");
+            }
+
             editor.apply();
 
             // Refresh all widgets on the home screen
@@ -126,7 +159,7 @@ public class AndroidNativeBridge {
     }
 
     /**
-     * Schedules exact alarm for reminders that fires even if app is closed or in background
+     * Schedules exact alarm using setAlarmClock so it wakes locked phones & Doze mode reliably
      */
     @JavascriptInterface
     public boolean scheduleReminder(String id, String title, String body, long triggerAtMillis, String category) {
@@ -148,10 +181,32 @@ public class AndroidNativeBridge {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
             );
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
-            } else {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+            Intent showIntent = new Intent(activity, MainActivity.class);
+            showIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            PendingIntent showPendingIntent = PendingIntent.getActivity(
+                activity,
+                requestCode + 1,
+                showIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            );
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    AlarmManager.AlarmClockInfo alarmClockInfo =
+                        new AlarmManager.AlarmClockInfo(triggerAtMillis, showPendingIntent);
+                    alarmManager.setAlarmClock(alarmClockInfo, pendingIntent);
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+                } else {
+                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+                }
+            } catch (SecurityException se) {
+                // Fallback if user declined exact alarm permission on Android 12+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+                } else {
+                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+                }
             }
 
             return true;
@@ -198,6 +253,43 @@ public class AndroidNativeBridge {
     @JavascriptInterface
     public boolean isNotificationsEnabled() {
         return NotificationManagerCompat.from(activity).areNotificationsEnabled();
+    }
+
+    @JavascriptInterface
+    public String getSystemNotificationStatus() {
+        if (activity instanceof MainActivity) {
+            return ((MainActivity) activity).getSystemNotificationStatusJson();
+        }
+        return "{\"notificationsEnabled\":" + isNotificationsEnabled() + ",\"exactAlarmAllowed\":true,\"batteryOptimizationIgnored\":false,\"androidSdk\":" + Build.VERSION.SDK_INT + "}";
+    }
+
+    @JavascriptInterface
+    public void requestSystemNotificationPermissions() {
+        if (activity instanceof MainActivity) {
+            ((MainActivity) activity).requestSystemNotificationPermissions();
+        }
+    }
+
+    @JavascriptInterface
+    public void requestIgnoreBatteryOptimization() {
+        if (activity instanceof MainActivity) {
+            ((MainActivity) activity).requestIgnoreBatteryOptimization();
+        }
+    }
+
+    @JavascriptInterface
+    public boolean sendTestNativeAlarm(String title, String body) {
+        try {
+            Intent intent = new Intent(activity, ReminderReceiver.class);
+            intent.putExtra(ReminderReceiver.EXTRA_ID, "test_alarm_now");
+            intent.putExtra(ReminderReceiver.EXTRA_TITLE, title != null && !title.isEmpty() ? title : "🔔 Тест будильника NotebookSmart");
+            intent.putExtra(ReminderReceiver.EXTRA_BODY, body != null && !body.isEmpty() ? body : "Системные уведомления и звук будильника работают!");
+            intent.putExtra(ReminderReceiver.EXTRA_CATEGORY, "event");
+            new ReminderReceiver().onReceive(activity, intent);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /* =========================================================================

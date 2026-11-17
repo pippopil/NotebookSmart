@@ -235,89 +235,115 @@ export function safeEvalMath(expressionStr: string): number | null {
   }
 }
 
+const MONEY_KEYWORDS_REGEX =
+  /(?:₽|\$|€|₸|₴|\b(?:руб(?:лей|ля|\.?)|rub|usd|eur|kzt|uah|byn|зарплат[а-я]*|доход[а-я]*|прибыл[а-я]*|аванс[а-я]*|преми[а-я]*|выручк[а-я]*|кешбэк[а-я]*|кэшбэк[а-я]*|расход[а-я]*|трат[а-я]*|оплат[а-я]*|аренд[а-я]*|коммуналк[а-я]*|жкх|кредит[а-я]*|ипотек[а-я]*|бензин|гсм|такси|отель|билет[а-я]*|спортзал|подписк[а-я]*|электричеств[а-я]*|интернет|связь|парковк[а-я]*|мойк[а-я]*|анализ[а-я]*|стоматолог|бюджет[а-я]*|к\s+оплате|чек|стоимость|цена|кэш)\b|(?<=\d|\s)р\.?(?!\p{L}))/iu;
+
+const PIECE_UNIT_REGEX =
+  /(?:\b\d+(?:[.,]\d+)?\s*(?:шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs|items?))/iu;
+
+const SHOPPING_CHECKBOX_REGEX = /^[-*•]?\s*\[[ xX✓✔]\]\s+/;
+
 /**
- * Checks if a line contains numbers that are non-financial context:
+ * Strips leading event timestamps like "14:00 — " or "09:30 - " so event cost lines still calculate cleanly
+ */
+function stripLeadingTimestamp(text: string): string {
+  return text.replace(/^\s*(?:[01]?\d|2[0-3]):[0-5]\d\s*(?:[—–\-:]|\s)\s*/u, '').trim();
+}
+
+/**
+ * Checks if a line contains numbers that are purely non-calculable text context:
  * e.g. dates/years (2024 г.), times (14:00), addresses (дом 12, кв 45),
- * phone numbers, model versions (uni-s 2024), or general bullet lists without
- * currency or arithmetic operations.
+ * phone numbers, model versions (uni-s 2024), shopping checkboxes without prices,
+ * or isolated numbers without operators/currency.
  */
 export function isNonFinancialNumberLine(rawText: string): boolean {
-  const t = rawText.trim();
+  const original = rawText.trim();
+  if (!original) return true;
+
+  // Shopping checklist lines without explicit ":" price/math or currency: keep as checklist items
+  if (SHOPPING_CHECKBOX_REGEX.test(original)) {
+    const hasExplicitMath =
+      /[:=]\s*[\d\s+\-*/%().]+/.test(original) ||
+      /\d+\s*[+*\/]\s*\d+/.test(original) ||
+      /(?:₽|\$|€|\bруб|\brub)/i.test(original);
+    if (!hasExplicitMath) {
+      return true;
+    }
+  }
+
+  const t = stripLeadingTimestamp(original);
   if (!t) return true;
 
-  // 1. Explicit financial keywords ALWAYS qualify for calculation
-  const hasFinancialKeyword = /\b(?:руб|рублей|рубля|rub|usd|eur|тенге|₽|\$|€|зарплат|доход|прибыль|аванс|преми|выручк|кешбэк|расход|трат|покупк|аренд|коммуналк|кредит|итого|всего|остаток|баланс|к\s+оплате)\b/i.test(t);
+  const hasMoneyKeyword = MONEY_KEYWORDS_REGEX.test(t);
+  const hasPieceUnit = PIECE_UNIT_REGEX.test(t);
 
-  // 2. Explicit piece units ALWAYS qualify for piece calculation
-  const hasPieceUnit = /(?:\b\d+\s*(?:шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs|items?))/iu.test(t);
-
-  // 3. Explicit arithmetic operation with operators (+, -, *, /, %) between numbers
+  // Explicit arithmetic operation with operators (+, -, *, /, %) between numbers
   // e.g. "450 * 2", "2400 + 1350", "5000 - 15%"
-  const hasArithmeticOperation = /\d+\s*[+*\/]\s*\d+|\d+\s*-\s*\d+(?:\s*%|\s*руб|\s*₽|\s*$)/.test(t);
+  const hasArithmeticOperation = /\d+\s*[+*\/÷×]\s*\d+|\d+\s*-\s*\d+(?:\s*%|\s*руб|\s*₽|\s*$)/.test(t);
 
-  // If it has arithmetic operations, financial keywords, or piece units:
-  if (hasFinancialKeyword || hasPieceUnit || hasArithmeticOperation) {
-    // Exception: If the line is purely a phone number without any financial words, ignore:
-    if (/(?:(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/.test(t) && !hasFinancialKeyword) {
+  // Leading income/expense sign directly on amount or labeled line: "+ Зарплата: 50000" or "- Кофе 350"
+  const hasSignedAmount = /^[+-]\s*(?:\p{L}.*?:\s*)?\d+/u.test(t) || /:\s*[+-]?\d+(?:[\s.,]\d+)?(?:\s*(?:к|k|тыс|млн|руб|₽|\$|€))?\s*$/iu.test(t);
+
+  // Reject phone numbers unless explicit money words exist
+  if (/(?:(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/.test(t) && !hasMoneyKeyword) {
+    return true;
+  }
+
+  // Reject 7-11 digit continuous numbers (phones, IDs, card tails) unless arithmetic or currency
+  if (/\b\d{7,11}\b/.test(t) && !hasMoneyKeyword && !hasArithmeticOperation) {
+    return true;
+  }
+
+  // Known non-calculable patterns when there is NO money keyword and NO arithmetic operator:
+  if (!hasMoneyKeyword && !hasArithmeticOperation) {
+    // Years: "2024 г.", "2024г", "2024 год"
+    if (/\b(?:19|20)\d{2}\s*(?:г(?:\.|\b)|год[а-я]*)/i.test(t)) return true;
+
+    // Standalone times: "14:00", "09:30"
+    if (/\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(t) && !hasPieceUnit) return true;
+
+    // Addresses: дом, д., кв., квартира, этаж, офис, корпус, стр., подъезд
+    if (/\b(?:дом|д\.|кв\.|кв|квартир[а-я]*|этаж|офис|корп(?:ус|\.)?|стр(?:\.|оение)?|подъезд|палата|код)\s*№?\s*\d+/iu.test(t)) {
+      return true;
+    }
+
+    // Dates: "12.05.2024", "09/11/2026", "15.04"
+    if (/\b\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?\b/.test(t)) return true;
+
+    // Versions and device/car model numbers: "uni-s 2024", "v1.9.7", "iPhone 15", "Android 14", "10000 mAh"
+    if (/\b(?:v|ver|версия|версии|changan|iphone|samsung|android|windows|mah|gb|гб|мб|mb|hz|гц)\b/i.test(t)) {
+      return true;
+    }
+
+    // Numbered list prefix: "1. Купить хлеб"
+    if (/^\d+[.)]\s+\p{L}/u.test(t) && !hasPieceUnit) return true;
+  }
+
+  if (hasMoneyKeyword || hasPieceUnit || hasArithmeticOperation || hasSignedAmount) {
+    // Bullet text lines like "- Позвонить в 15 часов" or "- Привет 2024" without money/math/pieces
+    if (/^[-*•]\s+\p{L}/u.test(t) && !hasMoneyKeyword && !hasPieceUnit && !hasArithmeticOperation && !/:\s*-?\d/.test(t)) {
       return true;
     }
     return false;
   }
 
-  // 4. Check for known non-financial patterns:
-  // - Years: e.g. "2024 г.", "2024г", "2024 год", "2023 г", "1998 г."
-  if (/\b(?:19|20)\d{2}\s*(?:г(?:\.|\b)|год[а-я]*)/i.test(t)) {
-    return true;
-  }
-
-  // - Times: e.g. "14:00", "09:30", "18:45"
-  if (/\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(t)) {
-    return true;
-  }
-
-  // - Addresses: дом, д., кв., квартира, этаж, офис, корпус, стр.
-  if (/\b(?:дом|д\.|кв\.|кв|квартир[а-я]*|этаж|офис|корп(?:ус|\.)?|стр(?:\.|оение)?)\s*\d+/i.test(t)) {
-    return true;
-  }
-
-  // - Dates: e.g. "12.05.2024", "09/11/2026", "15.04"
-  if (/\b\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?\b/.test(t)) {
-    return true;
-  }
-
-  // - Versions and model numbers: e.g. "uni-s 2024", "v1.9.7", "iPhone 15", "Android 14"
-  if (/\b(?:v|ver|версия|версии|changan|iphone|samsung|android|windows)\b/i.test(t)) {
-    return true;
-  }
-
-  // - Phone numbers:
-  if (/(?:(?:\+7|8)[\s\-(]?\d{3}[\s\-)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})|\b\d{7,11}\b/.test(t)) {
-    return true;
-  }
-
-  // - If it is a bullet list item (starting with -, *, •) and has NO financial keyword or operators:
-  // e.g. "- Адаптировать плеер под ГУ автомобиля Changan uni-s 2024"
-  if (/^[-*•]\s+/.test(t)) {
-    return true;
-  }
-
-  // - Single isolated number without arithmetic operator and no financial keyword:
-  // It is regular text (not a finance calculation)
+  // Plain bullet lists or bare isolated numbers in prose without context/operator are ignored
   return true;
 }
 
 /**
  * Analyzes a single line of note text.
- * - 'payment' mode: calculates strictly money (₽, $, €), revenue (+), expenses (-).
- * - 'calculation' mode: calculates non-monetary items, quantities (pieces, dimensions, general arithmetic).
+ * Supports:
+ * - 'auto': automatically classifies each line as money (₽/$/€), pieces (шт.), pure math, or ignored text
+ * - 'payment': forces money focus (while still detecting pieces)
+ * - 'calculation': forces non-monetary arithmetic & pieces focus (no ₽)
  */
 export function analyzeLine(
   rawText: string,
   lineNumber: number,
-  mode: 'payment' | 'calculation' = 'payment'
+  mode: 'auto' | 'payment' | 'calculation' = 'auto'
 ): LineCalculation {
   const trimmed = rawText.trim();
-  const defaultCurrency = mode === 'payment' ? detectCurrency(trimmed) : '';
 
   if (!trimmed) {
     return {
@@ -325,42 +351,28 @@ export function analyzeLine(
       rawText,
       expression: null,
       result: null,
-      currency: defaultCurrency,
+      currency: '',
       label: '',
       isTotalLine: false,
       type: 'neutral',
       isPieceCalculation: false,
+      lineKind: 'text',
     };
   }
 
-  const isTotalLine = /^[-*•]?\s*(?:итого|всего|общая сумма|расходы|остаток(?: бюджета)?|баланс|total|sum|balance)(?:\s*[:—\-=]|\s+|$)/i.test(
+  const isTotalLine = /^[-*•]?\s*(?:итого|всего|общая сумма|остаток(?:\s+[^:\n]*)?|баланс|total|sum|balance)(?:\s*[:—\-=]|\s+|$)/i.test(
     trimmed
   );
 
-  // In PAYMENT mode: reject non-financial lines (years, phones, addresses, non-monetary bullet lists)
-  if (mode === 'payment') {
-    if (!isTotalLine && isNonFinancialNumberLine(trimmed)) {
-      return {
-        lineNumber,
-        rawText,
-        expression: null,
-        result: null,
-        currency: defaultCurrency,
-        label: trimmed,
-        isTotalLine: false,
-        type: 'neutral',
-        isPieceCalculation: false,
-      };
-    }
-  } else {
-    // In CALCULATION mode (all arithmetic except money):
-    // Only calculate if the line has explicit math signals (operator +, -, *, /, %, piece units шт, or equation =)
-    if (!isTotalLine) {
+  // Filter out non-calculable lines (phones, dates, years, addresses, checkboxes, numbered prose)
+  if (!isTotalLine) {
+    if (mode === 'calculation') {
+      const cleanedForSignal = stripLeadingTimestamp(trimmed);
       const hasMathSignal =
-        /[+*\/%]|(?:\d+\s*-\s*\d+)|(?:[:=]\s*\d+)|\b(?:шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs|items?)\b/i.test(
-          trimmed
+        /[+*\/%÷×]|(?:\d+\s*-\s*\d+)|(?:[:=]\s*\d+)|\b(?:шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs|items?)\b/i.test(
+          cleanedForSignal
         );
-      if (!hasMathSignal) {
+      if (!hasMathSignal || isNonFinancialNumberLine(trimmed)) {
         return {
           lineNumber,
           rawText,
@@ -371,13 +383,30 @@ export function analyzeLine(
           isTotalLine: false,
           type: 'neutral',
           isPieceCalculation: false,
+          lineKind: 'text',
         };
       }
+    } else if (isNonFinancialNumberLine(trimmed)) {
+      return {
+        lineNumber,
+        rawText,
+        expression: null,
+        result: null,
+        currency: '',
+        label: trimmed,
+        isTotalLine: false,
+        type: 'neutral',
+        isPieceCalculation: false,
+        lineKind: 'text',
+      };
     }
   }
 
+  // Strip optional leading event time like "14:00 — " before parsing math
+  const effectiveLine = stripLeadingTimestamp(trimmed);
+
   // 1. Normalize Russian multipliers (3-х тысяч, 3 тыс, 3 тысячи, 3к)
-  const withMultipliers = normalizeMultipliers(trimmed);
+  const withMultipliers = normalizeMultipliers(effectiveLine);
 
   // 2. Normalize grouped numbers (3.000, 3,000, 3 000 -> 3000, decimals 561,69 -> 561.69)
   const normalized = normalizeNumbers(withMultipliers);
@@ -396,10 +425,9 @@ export function analyzeLine(
     label = normalized.substring(0, eqIdx).trim();
     potentialExpr = normalized.substring(eqIdx + 1).trim();
   } else {
-    // Check if line has words followed by math
-    // e.g. "Кофе 250 * 2" or "Плитка 40 * 3"
+    // Check if line has words followed by math: e.g. "Кофе 250 * 2" or "Плитка 40 * 3 шт"
     const match = normalized.match(
-      /^(.*?)([\d\s+\-*/%().xX×÷]+(?:руб(?:лей|ля|\.?)|р\.?|rub|\$|€|₽|тенге|шт(?:\.|\b)|штук[а-я]*)?)$/i
+      /^(.*?)([\d\s+\-*/%().xX×÷]+(?:руб(?:лей|ля|\.?)|р\.?|rub|\$|€|₽|₸|Br|₴|тенге|шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs)?)$/iu
     );
     if (match && match[1] && match[2] && /\d/.test(match[2])) {
       label = match[1].trim();
@@ -409,8 +437,11 @@ export function analyzeLine(
     }
   }
 
-  // Detect if line uses units of pieces (шт, штуки, ед, pcs)
-  const isPiecesLine = /(?:\b\d+\s*(?:шт(?:\.|\b)|штук[а-я]*|ед(?:\.|\b)|pcs|items?))/iu.test(trimmed);
+  const isMoneyLine =
+    mode === 'payment' ||
+    MONEY_KEYWORDS_REGEX.test(effectiveLine) ||
+    /^[+-]\s*(?:\p{L}.*?:\s*)?\d/u.test(effectiveLine);
+  const isPiecesLine = PIECE_UNIT_REGEX.test(effectiveLine) && !MONEY_KEYWORDS_REGEX.test(effectiveLine);
 
   // Strip currency words and symbols, or piece units
   let cleanExpr = stripCurrency(potentialExpr);
@@ -420,40 +451,64 @@ export function analyzeLine(
       .trim();
   }
 
-  // Test if it has digits
+  // Test if expression evaluates cleanly
   if (/\d/.test(cleanExpr)) {
     const result = safeEvalMath(cleanExpr);
     if (result !== null && !isNaN(result)) {
       let lineType: 'income' | 'expense' | 'total' | 'neutral' = 'neutral';
+      const absResult = Math.abs(result);
+
       if (isTotalLine) {
         lineType = 'total';
-      } else if (mode === 'payment') {
+      } else if (isMoneyLine && mode !== 'calculation') {
         if (
-          trimmed.startsWith('+') ||
-          /\b(?:прибыль|доход(?:ы)?|зарплат(?:а|ы)?|преми(?:я|и)|аванс|кешбэк|выручк(?:а|и)|получен(?:о|ы)|плюс)\b/i.test(trimmed)
+          effectiveLine.startsWith('+') ||
+          /\b(?:прибыль|доход(?:ы)?|зарплат(?:а|ы)?|преми(?:я|и)|аванс|кешбэк|кэшбэк|выручк(?:а|и)|получен(?:о|ы)|плюс|компенсац[а-я]*)\b/iu.test(
+            effectiveLine
+          )
         ) {
           lineType = 'income';
         } else if (
-          trimmed.startsWith('-') ||
-          /\b(?:расход(?:ы)?|трат(?:ы|а)|минус|покупк(?:а|и)|оплат(?:а|ы)|аренд(?:а|ы)|коммуналк(?:а|и))\b/i.test(trimmed)
+          effectiveLine.startsWith('-') ||
+          result < 0 ||
+          /\b(?:расход(?:ы)?|трат(?:ы|а)|минус|покупк(?:а|и)|оплат(?:а|ы)|аренд(?:а|ы)|коммуналк(?:а|и)|жкх|кредит|ипотек|бензин|парковк|продукты)\b/iu.test(
+            effectiveLine
+          )
         ) {
           lineType = 'expense';
         }
       }
 
-      const assignedCurrency =
-        isPiecesLine ? 'шт.' : mode === 'payment' ? defaultCurrency : '';
+      const detectedMoneyCurrency = detectCurrency(effectiveLine);
+      let assignedCurrency = '';
+      let lineKind: 'money' | 'pieces' | 'math' | 'text' = 'math';
+
+      if (isPiecesLine) {
+        assignedCurrency = 'шт.';
+        lineKind = 'pieces';
+      } else if (mode === 'calculation') {
+        assignedCurrency = '';
+        lineKind = 'math';
+      } else if (isMoneyLine) {
+        assignedCurrency = detectedMoneyCurrency;
+        lineKind = 'money';
+      } else {
+        // Pure math expression without currency or financial context -> no ₽ sign!
+        assignedCurrency = '';
+        lineKind = 'math';
+      }
 
       return {
         lineNumber,
         rawText,
         expression: cleanExpr,
-        result,
+        result: lineType === 'expense' ? absResult : result,
         currency: assignedCurrency,
         label,
         isTotalLine,
         type: lineType,
         isPieceCalculation: isPiecesLine,
+        lineKind,
       };
     }
   }
@@ -463,28 +518,31 @@ export function analyzeLine(
     rawText,
     expression: null,
     result: null,
-    currency: defaultCurrency,
+    currency: '',
     label,
     isTotalLine,
     type: isTotalLine ? 'total' : 'neutral',
     isPieceCalculation: false,
+    lineKind: 'text',
   };
 }
 
 /**
- * Analyzes whole note text line-by-line according to its category:
- * - 'note' / 'general': ZERO calculations (clean note, thought, address, contacts).
- * - 'payment': Strictly financial calculations (money in ₽, $, € with income, expenses, balance).
- * - 'calculation': Strictly non-financial arithmetic & quantities (pieces, dimensions, items).
+ * Analyzes whole note text line-by-line automatically.
+ * If autoCalculate is explicitly false, disables calculation completely.
+ * Otherwise automatically distinguishes money (₽/$/€), pieces (шт.), and pure math per line.
  */
 export function analyzeNote(
   content: string,
-  category: NoteCategory = 'payment'
+  category: NoteCategory = 'note',
+  autoCalculate?: boolean
 ): NoteCalculationSummary {
   const rawLines = content.split('\n');
 
-  // MODE 1: 'note' / 'general' -> Absolutely NO calculations!
-  if (category === 'note' || category === 'general') {
+  // Calculation is active whenever autoCalculate is not explicitly disabled (false)
+  const calcEnabled = autoCalculate !== undefined ? autoCalculate : true;
+
+  if (!calcEnabled) {
     const emptyLines: LineCalculation[] = rawLines.map((rawText, idx) => ({
       lineNumber: idx + 1,
       rawText,
@@ -495,6 +553,7 @@ export function analyzeNote(
       isTotalLine: false,
       type: 'neutral',
       isPieceCalculation: false,
+      lineKind: 'text',
     }));
 
     return {
@@ -513,16 +572,23 @@ export function analyzeNote(
     };
   }
 
-  const calcMode = category === 'calculation' ? 'calculation' : 'payment';
+  const calcMode: 'auto' | 'payment' | 'calculation' =
+    category === 'payment' || category === 'budget'
+      ? 'payment'
+      : category === 'calculation'
+      ? 'calculation'
+      : 'auto';
+
   const lines: LineCalculation[] = [];
   const breakdownByCurrency: Record<string, number> = {};
   let totalCalculatedLines = 0;
-  let primaryCurrency = calcMode === 'payment' ? '₽' : '';
-  let runningSubtotal = 0;
+  let primaryCurrency = '';
+  let runningMoneyOrMathSum = 0;
   let totalIncome = 0;
   let totalExpenses = 0;
   let totalPieces = 0;
   let hasPieces = false;
+  let hasMoneyLines = false;
 
   for (let idx = 0; idx < rawLines.length; idx++) {
     const rawLine = rawLines[idx];
@@ -530,17 +596,21 @@ export function analyzeNote(
 
     if (parsed.isTotalLine) {
       let totalSoFar: number;
-      if (runningSubtotal > 0) {
-        totalSoFar = Math.round(runningSubtotal * 100) / 100;
-      } else if (parsed.result !== null && parsed.result > 0) {
+      if (totalIncome > 0 && totalExpenses > 0) {
+        totalSoFar = Math.round((totalIncome - totalExpenses) * 100) / 100;
+      } else if (runningMoneyOrMathSum !== 0) {
+        totalSoFar = Math.round(runningMoneyOrMathSum * 100) / 100;
+      } else if (totalPieces > 0) {
+        totalSoFar = Math.round(totalPieces * 100) / 100;
+      } else if (parsed.result !== null && parsed.result !== 0) {
         totalSoFar = parsed.result;
-        runningSubtotal = parsed.result;
+        runningMoneyOrMathSum = parsed.result;
       } else {
         totalSoFar = 0;
       }
 
       parsed.result = totalSoFar;
-      parsed.currency = primaryCurrency;
+      parsed.currency = primaryCurrency || (hasPieces ? 'шт.' : '');
       lines.push(parsed);
     } else {
       if (parsed.result !== null) {
@@ -550,9 +620,12 @@ export function analyzeNote(
           hasPieces = true;
         } else {
           const curr = parsed.currency;
+          if (parsed.lineKind === 'money' || curr) {
+            hasMoneyLines = true;
+            if (!primaryCurrency) primaryCurrency = curr || '₽';
+          }
           breakdownByCurrency[curr] = (breakdownByCurrency[curr] || 0) + parsed.result;
-          if (curr) primaryCurrency = curr;
-          runningSubtotal += parsed.result;
+          runningMoneyOrMathSum += parsed.result;
 
           if (parsed.type === 'income') {
             totalIncome += parsed.result;
@@ -565,31 +638,29 @@ export function analyzeNote(
     }
   }
 
-  let finalGrandTotal = breakdownByCurrency[primaryCurrency] || runningSubtotal || 0;
-  let finalCurrency = primaryCurrency;
+  const hasIncomeExpenseSplit = totalIncome > 0 && totalExpenses > 0;
+  const netBalance = totalIncome - totalExpenses;
 
-  // In calculation mode: if pieces were predominantly counted, unit is 'шт.', otherwise empty (pure count)
-  if (calcMode === 'calculation') {
-    if (totalPieces > 0 && finalGrandTotal === 0) {
-      finalGrandTotal = totalPieces;
-      finalCurrency = 'шт.';
-    } else if (hasPieces) {
-      finalCurrency = 'шт.';
-    } else {
-      finalCurrency = '';
-    }
-  } else {
-    // In payment mode: if only pieces were entered, unit is 'шт.'
-    if (finalGrandTotal === 0 && totalPieces > 0) {
-      finalGrandTotal = totalPieces;
-      finalCurrency = 'шт.';
-    }
+  let finalGrandTotal = 0;
+  if (hasIncomeExpenseSplit) {
+    finalGrandTotal = netBalance;
+  } else if (runningMoneyOrMathSum !== 0) {
+    finalGrandTotal = runningMoneyOrMathSum;
+  } else if (totalPieces > 0) {
+    finalGrandTotal = totalPieces;
   }
 
-  const hasIncomeExpenseSplit = calcMode === 'payment' && totalIncome > 0 && totalExpenses > 0;
-  const netBalance = totalIncome - totalExpenses;
+  let finalCurrency = '';
+  if (hasMoneyLines) {
+    finalCurrency = primaryCurrency || '₽';
+  } else if (totalPieces > 0 && runningMoneyOrMathSum === 0) {
+    finalCurrency = 'шт.';
+  } else {
+    finalCurrency = '';
+  }
+
   const savingsRatePercent =
-    calcMode === 'payment' && totalIncome > 0
+    totalIncome > 0
       ? Math.max(0, Math.round(((totalIncome - totalExpenses) / totalIncome) * 100))
       : 0;
 

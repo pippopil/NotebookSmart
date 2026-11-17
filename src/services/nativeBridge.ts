@@ -39,6 +39,12 @@ declare global {
       isSpeechActive?: () => boolean;
       startNativeSpeechRecognition?: (lang: string) => void;
       stopNativeSpeechRecognition?: () => void;
+
+      // Step 7: System-level Android Notifications, Exact Alarms & Battery Optimization
+      getSystemNotificationStatus?: () => string;
+      requestSystemNotificationPermissions?: () => void;
+      requestIgnoreBatteryOptimization?: () => void;
+      sendTestNativeAlarm?: (title: string, body: string) => boolean;
     };
 
     // System event callbacks invoked by native Android
@@ -48,7 +54,59 @@ declare global {
     onNativeSpeechResult?: (text: string, isFinal: boolean) => void;
     onNativeSpeechError?: (errorMsg: string) => void;
     onNativeSpeechState?: (state: string) => void;
+    onNativePermissionResult?: (statusJson: string) => void;
   }
+}
+
+export interface AndroidNotificationStatus {
+  notificationsEnabled: boolean;
+  exactAlarmAllowed: boolean;
+  batteryOptimizationIgnored: boolean;
+  androidSdk: number;
+}
+
+export function getAndroidNotificationStatus(): AndroidNotificationStatus | null {
+  if (!isAndroidNativeApp()) return null;
+  if (window.AndroidNative && typeof window.AndroidNative.getSystemNotificationStatus === 'function') {
+    try {
+      const raw = window.AndroidNative.getSystemNotificationStatus();
+      return JSON.parse(raw) as AndroidNotificationStatus;
+    } catch {
+      return null;
+    }
+  }
+  return {
+    notificationsEnabled: window.AndroidNative?.isNotificationsEnabled?.() ?? false,
+    exactAlarmAllowed: true,
+    batteryOptimizationIgnored: false,
+    androidSdk: 33,
+  };
+}
+
+export function requestAndroidNotificationPermissions(): boolean {
+  if (!isAndroidNativeApp()) return false;
+  if (window.AndroidNative && typeof window.AndroidNative.requestSystemNotificationPermissions === 'function') {
+    window.AndroidNative.requestSystemNotificationPermissions();
+    return true;
+  }
+  return false;
+}
+
+export function requestAndroidBatteryExemption(): boolean {
+  if (!isAndroidNativeApp()) return false;
+  if (window.AndroidNative && typeof window.AndroidNative.requestIgnoreBatteryOptimization === 'function') {
+    window.AndroidNative.requestIgnoreBatteryOptimization();
+    return true;
+  }
+  return false;
+}
+
+export function sendAndroidTestAlarm(title: string, body: string): boolean {
+  if (!isAndroidNativeApp()) return false;
+  if (window.AndroidNative && typeof window.AndroidNative.sendTestNativeAlarm === 'function') {
+    return window.AndroidNative.sendTestNativeAlarm(title, body);
+  }
+  return false;
 }
 
 /**
@@ -146,11 +204,21 @@ export function nativeHaptic(style: 'light' | 'medium' | 'heavy' | 'success' | '
   }
 }
 
+export interface WidgetEventSnippet {
+  title: string;
+  subtitle: string;
+  category?: string;
+}
+
 export interface WidgetPayload {
   badge: string;
   summary: string;
   items: string[];
   remaining?: string;
+  eventsByDate?: Record<string, number>;
+  nearestEvent?: WidgetEventSnippet | null;
+  nearestReminder?: WidgetEventSnippet | null;
+  nearestTask?: WidgetEventSnippet | null;
 }
 
 /**
@@ -165,15 +233,31 @@ export function syncNativeWidget(data: WidgetPayload): boolean {
 }
 
 /**
- * Helper to automatically format notes and update Android Home Screen widget
+ * Helper to automatically format notes and update Android Home Screen Calendar Widget
  */
 export function syncWidgetFromNotes(notes: Note[]): void {
   if (!isAndroidNativeApp()) return;
 
-  // Find nearest upcoming event
   const now = Date.now();
-  let nearestEvent: Note | null = null;
-  let nearestDiff = Infinity;
+  const eventsByDate: Record<string, number> = {};
+
+  // Build workload map by YYYY-MM-DD for current & upcoming months
+  for (const n of notes) {
+    if (n.isArchived) continue;
+    if (n.category === 'event' && n.eventDate && !n.isEventDone) {
+      eventsByDate[n.eventDate] = (eventsByDate[n.eventDate] || 0) + 1;
+    }
+    if (n.reminderEnabled && !n.reminderTriggered && n.reminderDateTime) {
+      const remDate = n.reminderDateTime.slice(0, 10);
+      if (remDate && remDate !== n.eventDate) {
+        eventsByDate[remDate] = (eventsByDate[remDate] || 0) + 1;
+      }
+    }
+  }
+
+  // 1. Nearest upcoming event
+  let nearestEventNote: Note | null = null;
+  let nearestEventDiff = Infinity;
 
   const eventNotes = notes.filter((n) => !n.isArchived && n.category === 'event' && !n.isEventDone);
   for (const en of eventNotes) {
@@ -184,72 +268,104 @@ export function syncWidgetFromNotes(notes: Note[]): void {
     } else if (en.reminderDateTime) {
       eventTime = new Date(en.reminderDateTime).getTime();
     }
-    if (eventTime && eventTime >= now - 1000 * 60 * 60) {
+    if (eventTime && eventTime >= now - 1000 * 60 * 60 * 6) {
       const diff = eventTime - now;
-      if (diff < nearestDiff) {
-        nearestDiff = diff;
-        nearestEvent = en;
+      if (diff < nearestEventDiff) {
+        nearestEventDiff = diff;
+        nearestEventNote = en;
       }
     }
   }
 
-  // Find active shopping notes
-  const shoppingNotes = notes.filter((n) => !n.isArchived && (n.category === 'shopping' || n.shoppingItemsCount));
-  
-  let uncheckedItems: string[] = [];
-  let totalPending = 0;
+  const nearestEvent: WidgetEventSnippet | null = nearestEventNote
+    ? {
+        title: (nearestEventNote.title || 'Событие').replace(/^\s*📅\s*/, ''),
+        subtitle: `${
+          nearestEventNote.eventDate
+            ? new Date(nearestEventNote.eventDate + 'T00:00:00').toLocaleDateString('ru-RU', {
+                day: 'numeric',
+                month: 'short',
+              })
+            : 'Скоро'
+        }${nearestEventNote.eventTime ? ` • ${nearestEventNote.eventTime}` : ''}`,
+        category: nearestEventNote.eventCategory || 'meeting',
+      }
+    : null;
 
-  for (const sn of shoppingNotes) {
-    const items = extractShoppingItems(sn.content);
+  // 2. Nearest active reminder
+  let nearestReminderNote: Note | null = null;
+  let nearestReminderDiff = Infinity;
+  for (const n of notes) {
+    if (n.isArchived || !n.reminderEnabled || n.reminderTriggered || !n.reminderDateTime) continue;
+    const remTime = new Date(n.reminderDateTime).getTime();
+    if (!isNaN(remTime) && remTime >= now - 1000 * 60 * 30) {
+      const diff = remTime - now;
+      if (diff < nearestReminderDiff) {
+        nearestReminderDiff = diff;
+        nearestReminderNote = n;
+      }
+    }
+  }
+
+  const nearestReminder: WidgetEventSnippet | null = nearestReminderNote
+    ? {
+        title: nearestReminderNote.title || 'Напоминание',
+        subtitle: new Date(nearestReminderNote.reminderDateTime!).toLocaleDateString('ru-RU', {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      }
+    : null;
+
+  // 3. Nearest active task (unchecked checklist/shopping item)
+  let nearestTask: WidgetEventSnippet | null = null;
+  const activeNotes = notes.filter((n) => !n.isArchived);
+  let totalPending = 0;
+  let firstTaskTitle = '';
+  let firstTaskSource = '';
+
+  for (const n of activeNotes) {
+    const items = extractShoppingItems(n.content);
     for (const item of items) {
       if (!item.isCompleted) {
         totalPending++;
-        if (uncheckedItems.length < 3) {
-          uncheckedItems.push(item.name);
+        if (!firstTaskTitle) {
+          firstTaskTitle = item.name;
+          firstTaskSource = n.title || 'Задачи';
         }
       }
     }
   }
 
-  if (nearestEvent && uncheckedItems.length === 0) {
-    // Show Calendar & Nearest Event in Android Home Screen Widget
-    const dateStr = nearestEvent.eventDate
-      ? new Date(nearestEvent.eventDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-      : 'Скоро';
-    const timeStr = nearestEvent.eventTime ? ` в ${nearestEvent.eventTime}` : '';
-
-    syncNativeWidget({
-      badge: '📅 Календарь событий',
-      summary: `Ближайшее: ${nearestEvent.title || 'Событие'}`,
-      items: [
-        `• Дата: ${dateStr}${timeStr}`,
-        nearestEvent.content ? `• ${nearestEvent.content.slice(0, 45)}` : '• Откройте в тетрадке',
-        `• Всего событий: ${eventNotes.length}`,
-      ],
-      remaining: 'Нажмите для перехода к календарю →',
-    });
-  } else if (uncheckedItems.length > 0) {
-    const remainingCount = totalPending - uncheckedItems.length;
-    const eventHint = nearestEvent ? ` | 📅 ${nearestEvent.title?.slice(0, 16)}` : '';
-
-    syncNativeWidget({
-      badge: '🛒 Список покупок',
-      summary: `К покупке: ${totalPending} товаров${eventHint}`,
-      items: uncheckedItems,
-      remaining: remainingCount > 0 ? `+ еще ${remainingCount} товаров в списке...` : '✓ Все актуальные товары показаны',
-    });
-  } else {
-    // If shopping is done, show budget or active notes summary
-    const budgetNotes = notes.filter((n) => !n.isArchived && n.cachedTotal);
-    const totalExpenses = budgetNotes.reduce((acc, n) => acc + (n.cachedTotal || 0), 0);
-
-    syncNativeWidget({
-      badge: '📓 NotebookSmart',
-      summary: totalExpenses > 0 ? `Расходы по счетам: ${totalExpenses.toLocaleString('ru-RU')} ₽` : 'Все дела и покупки выполнены!',
-      items: ['Откройте блокнот для новых записей'],
-      remaining: 'Нажмите для перехода в тетрадь →',
-    });
+  if (firstTaskTitle) {
+    nearestTask = {
+      title: firstTaskTitle,
+      subtitle: totalPending > 1 ? `Ещё задач: ${totalPending - 1} (${firstTaskSource})` : firstTaskSource,
+    };
+  } else if (nearestEventNote) {
+    nearestTask = {
+      title: nearestEventNote.content?.split('\n').find((l) => l.trim().length > 0)?.slice(0, 40) || 'Открыть заметку',
+      subtitle: 'План события',
+    };
   }
+
+  const fallbackDate = nearestEvent ? nearestEvent.subtitle : 'Нет ближайших событий';
+  syncNativeWidget({
+    badge: '📅 Календарь и События',
+    summary: nearestEvent ? nearestEvent.title : 'Нет ближайших событий',
+    items: [
+      nearestEvent ? `Событие: ${nearestEvent.title} (${fallbackDate})` : 'Событий пока нет',
+      nearestReminder ? `Напоминание: ${nearestReminder.title} (${nearestReminder.subtitle})` : 'Напоминаний нет',
+      nearestTask ? `Задание: ${nearestTask.title}` : 'Все задания выполнены',
+    ],
+    remaining: 'Нажмите для перехода в календарь →',
+    eventsByDate,
+    nearestEvent,
+    nearestReminder,
+    nearestTask,
+  });
 }
 
 /**

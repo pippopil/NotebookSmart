@@ -194,7 +194,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-4 pb-28 space-y-4">
+    <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain w-full">
+      <div className="max-w-4xl mx-auto px-4 py-4 pb-28 space-y-4">
       {/* 1. TOP HEADER: TITLE & TIMEZONE & HOLIDAY SETTINGS BAR */}
       <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4 transition-colors">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-amber-900/10 dark:border-stone-800">
@@ -826,6 +827,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

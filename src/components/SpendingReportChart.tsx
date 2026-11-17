@@ -23,6 +23,7 @@ import { extractSmartTagsLocally } from '../services/aiTagging';
 
 interface SpendingReportChartProps {
   notes: Note[];
+  globalAutoCalculate?: boolean;
   onSelectTag?: (tag: string) => void;
 }
 
@@ -50,17 +51,27 @@ const TAG_PALETTE = [
 
 export const SpendingReportChart: React.FC<SpendingReportChartProps> = ({
   notes,
+  globalAutoCalculate = true,
   onSelectTag,
 }) => {
   const [activeFilterTag, setActiveFilterTag] = useState<string | null>(null);
 
   // Aggregate expenses categorized by note tags
   const { chartData, totalExpenseAmount, topCategory, totalPaymentNotesCount } = useMemo(() => {
+    if (!globalAutoCalculate) {
+      return {
+        chartData: [] as TagExpenseSlice[],
+        totalExpenseAmount: 0,
+        topCategory: null as TagExpenseSlice | null,
+        totalPaymentNotesCount: 0,
+      };
+    }
     const tagMap: Record<string, { total: number; count: number }> = {};
     let grandTotal = 0;
     let paymentNotesCount = 0;
 
     notes.forEach((note) => {
+      if (note.isArchived) return;
       // Pick either explicit expenses or payment note total
       const expense =
         (note.cachedExpenses && note.cachedExpenses > 0)
@@ -115,7 +126,7 @@ export const SpendingReportChart: React.FC<SpendingReportChartProps> = ({
       topCategory: top,
       totalPaymentNotesCount: paymentNotesCount,
     };
-  }, [notes]);
+  }, [notes, globalAutoCalculate]);
 
   // Custom Recharts Tooltip
   const renderCustomTooltip = ({ active, payload }: any) => {
@@ -192,10 +203,14 @@ export const SpendingReportChart: React.FC<SpendingReportChartProps> = ({
         <div className="text-center py-10 px-4 bg-stone-50/50 dark:bg-stone-950/40 rounded-2xl border border-dashed border-stone-200 dark:border-stone-800">
           <Receipt className="w-10 h-10 text-stone-400 mx-auto mb-2 opacity-60" />
           <h4 className="text-sm font-bold text-stone-700 dark:text-stone-300 mb-1">
-            Пока нет расходов для построения диаграммы
+            {globalAutoCalculate
+              ? 'Пока нет расходов для построения диаграммы'
+              : 'Автоматический расчёт отключён'}
           </h4>
           <p className="text-xs text-stone-500 max-w-sm mx-auto">
-            Добавьте финансовые заметки с суммами и тегами (например, #work, #shopping, #finances), чтобы увидеть интерактивный отчет расходов.
+            {globalAutoCalculate
+              ? 'Добавьте финансовые заметки с суммами и тегами (например, #work, #shopping, #finances), чтобы увидеть интерактивный отчет расходов.'
+              : 'Включите глобальный переключатель «Автоматический расчёт» выше или в настройках, чтобы видеть графики и суммы по всем заметкам.'}
           </p>
         </div>
       ) : (

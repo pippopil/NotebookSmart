@@ -76,34 +76,21 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 <FileText className="w-5 h-5" />
               </div>
               <div>
-                <span className="text-sm font-bold text-stone-900 dark:text-white block">Просто заметка</span>
-                <span className="text-[11px] text-stone-500 dark:text-stone-400">Текст, мысли, списки (без расчетов)</span>
+                <span className="text-sm font-bold text-stone-900 dark:text-white block">📝 Новая запись</span>
+                <span className="text-[11px] text-stone-500 dark:text-stone-400">Текст, доходы, расходы и числа считаются сами</span>
               </div>
             </button>
 
             <button
-              onClick={() => handleCreateCategory('payment')}
-              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-amber-50/70 hover:bg-amber-100/80 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-amber-300/70 dark:border-stone-700/60 text-left transition active:scale-98"
+              onClick={() => handleCreateCategory('shopping')}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-emerald-50/70 hover:bg-emerald-100/80 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-emerald-300/70 dark:border-stone-700/60 text-left transition active:scale-98"
             >
-              <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
-                <Calculator className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <ShoppingCart className="w-5 h-5" />
               </div>
               <div>
-                <span className="text-sm font-bold text-stone-900 dark:text-white block">Финансы (в деньгах)</span>
-                <span className="text-[11px] text-stone-600 dark:text-stone-400">Прибыль, траты и баланс (в рублях ₽)</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => handleCreateCategory('calculation')}
-              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-teal-50/70 hover:bg-teal-100/80 dark:bg-stone-800/80 dark:hover:bg-stone-800 border border-teal-300/70 dark:border-stone-700/60 text-left transition active:scale-98"
-            >
-              <div className="w-10 h-10 rounded-xl bg-teal-500/15 text-teal-700 dark:text-teal-400 flex items-center justify-center shrink-0">
-                <Calculator className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-sm font-bold text-stone-900 dark:text-white block">Расчёт & Количество</span>
-                <span className="text-[11px] text-stone-600 dark:text-stone-400">Штуки, предметы, материалы (без денег)</span>
+                <span className="text-sm font-bold text-stone-900 dark:text-white block">🛒 Список покупок</span>
+                <span className="text-[11px] text-stone-600 dark:text-stone-400">Чек-лист товаров с отметками</span>
               </div>
             </button>
 
@@ -115,8 +102,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 <Calendar className="w-5 h-5" />
               </div>
               <div>
-                <span className="text-sm font-bold text-stone-900 dark:text-white block">Событие</span>
-                <span className="text-[11px] text-stone-500 dark:text-stone-400">Встречи, даты и планы</span>
+                <span className="text-sm font-bold text-stone-900 dark:text-white block">📅 Событие / Напоминание</span>
+                <span className="text-[11px] text-stone-500 dark:text-stone-400">Календарь, встречи и системный будильник</span>
               </div>
             </button>
 
@@ -216,7 +203,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             <span className="text-[10px]">События</span>
           </button>
 
-          {/* Calculator / Payments tab */}
+          {/* Finances & Calculator Summary tab */}
           <button
             onClick={() => onTabChange('calc')}
             className={`flex flex-col items-center gap-1 transition ${
@@ -224,9 +211,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 ? 'text-amber-600 dark:text-amber-400 font-bold scale-105'
                 : 'text-stone-400 hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300'
             }`}
+            title="Финансы: сводка доходов, расходов, диаграмма трат и калькулятор"
           >
             <Calculator className="w-5 h-5" />
-            <span className="text-[10px]">Оплаты</span>
+            <span className="text-[10px]">Финансы</span>
           </button>
 
           {/* Archive tab */}

@@ -11,6 +11,10 @@ import {
   CheckCircle2,
   MapPin,
   RefreshCw,
+  Bell,
+  Volume2,
+  BatteryCharging,
+  Calculator,
 } from 'lucide-react';
 import {
   TimezoneMode,
@@ -18,6 +22,14 @@ import {
   getDeviceTimezone,
   isLocalDifferentFromMsk,
 } from '../services/timezone';
+import {
+  isAndroidNativeApp,
+  getAndroidNotificationStatus,
+  requestAndroidNotificationPermissions,
+  requestAndroidBatteryExemption,
+  AndroidNotificationStatus,
+} from '../services/nativeBridge';
+import { sendTestNotification } from '../services/notifications';
 import { ThemeToggle } from './ThemeToggle';
 
 interface AppSettingsModalProps {
@@ -25,6 +37,8 @@ interface AppSettingsModalProps {
   onClose: () => void;
   timezoneMode: TimezoneMode;
   onTimezoneModeChange: (mode: TimezoneMode) => void;
+  globalAutoCalculate?: boolean;
+  onGlobalAutoCalculateChange?: (enabled: boolean) => void;
   onOpenSecurity?: () => void;
   onOpenChangelog?: () => void;
 }
@@ -34,15 +48,32 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   onClose,
   timezoneMode,
   onTimezoneModeChange,
+  globalAutoCalculate = true,
+  onGlobalAutoCalculateChange,
   onOpenSecurity,
   onOpenChangelog,
 }) => {
   const [clockTick, setClockTick] = useState(Date.now());
+  const [androidStatus, setAndroidStatus] = useState<AndroidNotificationStatus | null>(() =>
+    getAndroidNotificationStatus()
+  );
+  const [testAlarmSent, setTestAlarmSent] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
+    setAndroidStatus(getAndroidNotificationStatus());
+    const prevCallback = window.onNativePermissionResult;
+    window.onNativePermissionResult = (json: string) => {
+      try {
+        setAndroidStatus(JSON.parse(json) as AndroidNotificationStatus);
+      } catch {}
+      if (prevCallback) prevCallback(json);
+    };
     const interval = setInterval(() => setClockTick(Date.now()), 1000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.onNativePermissionResult = prevCallback;
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -99,6 +130,66 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
 
         {/* Scrollable Content */}
         <div className="p-4 sm:p-5 space-y-5 overflow-y-auto flex-1">
+          {/* SECTION 0: GLOBAL AUTOMATIC CALCULATION SWITCH */}
+          {onGlobalAutoCalculateChange && (
+            <div className="bg-stone-50 dark:bg-stone-850/80 rounded-2xl p-4 border border-stone-200 dark:border-stone-800 space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`p-2 rounded-xl shrink-0 ${
+                      globalAutoCalculate
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                        : 'bg-stone-200 dark:bg-stone-800 text-stone-500'
+                    }`}
+                  >
+                    <Calculator className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-sm text-stone-900 dark:text-white">
+                      Автоматический расчёт
+                    </h4>
+                    <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                      Парсинг финансовых выражений и чисел во всех заметках сразу
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={globalAutoCalculate}
+                  onClick={() => onGlobalAutoCalculateChange(!globalAutoCalculate)}
+                  className="flex items-center gap-2 cursor-pointer shrink-0"
+                >
+                  <span
+                    className={`text-[11px] font-bold ${
+                      globalAutoCalculate ? 'text-emerald-700 dark:text-emerald-400' : 'text-stone-500'
+                    }`}
+                  >
+                    {globalAutoCalculate ? 'ВКЛ' : 'ВЫКЛ'}
+                  </span>
+                  <div
+                    className={`w-11 h-6 flex items-center rounded-full p-0.5 transition ${
+                      globalAutoCalculate ? 'bg-emerald-600' : 'bg-stone-300 dark:bg-stone-700'
+                    }`}
+                  >
+                    <div
+                      className={`bg-white w-5 h-5 rounded-full shadow-md transform transition duration-200 ${
+                        globalAutoCalculate ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </div>
+                </button>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-stone-900/70 border border-emerald-500/20 dark:border-stone-800 text-[11px] text-stone-600 dark:text-stone-400 leading-relaxed">
+                {globalAutoCalculate
+                  ? 'Включено: все заметки автоматически считают доходы (+), расходы (-), валюты, проценты и штуки (игнорируя номера телефонов, адреса и даты).'
+                  : 'Выключено: парсинг финансовых выражений отключён для всех заметок одновременно — на страницах и карточках отображается только чистый текст.'}
+              </div>
+            </div>
+          )}
+
           {/* SECTION 1: TIMEZONE SETTINGS (USER'S EXPLICIT REQUEST) */}
           <div className="bg-stone-50 dark:bg-stone-850/80 rounded-2xl p-4 border border-stone-200 dark:border-stone-800 space-y-3.5">
             <div className="flex items-center justify-between gap-2">
@@ -196,6 +287,77 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                   Разница с Москвой: {tzInfo.diffFromMskHours > 0 ? `+${tzInfo.diffFromMskHours}` : tzInfo.diffFromMskHours} ч.
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* SECTION 1.5: ANDROID SYSTEM NOTIFICATIONS & ALARM CLOCK PERMISSIONS */}
+          <div className="bg-stone-50 dark:bg-stone-850/80 rounded-2xl p-4 border border-stone-200 dark:border-stone-800 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Bell className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                <div>
+                  <h4 className="font-bold text-sm text-stone-900 dark:text-white">
+                    Уведомления и будильник Android
+                  </h4>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                    Системные оповещения при заблокированном экране и спящем режиме
+                  </p>
+                </div>
+              </div>
+              {isAndroidNativeApp() && androidStatus && (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    androidStatus.notificationsEnabled
+                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-400/40'
+                      : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-400/40'
+                  }`}
+                >
+                  {androidStatus.notificationsEnabled ? 'Разрешены' : 'Отключены'}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  requestAndroidNotificationPermissions();
+                  setTimeout(() => setAndroidStatus(getAndroidNotificationStatus()), 500);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              >
+                <Bell className="w-3.5 h-3.5" />
+                <span>Разрешить в системе Android</span>
+              </button>
+
+              {isAndroidNativeApp() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    requestAndroidBatteryExemption();
+                    setTimeout(() => setAndroidStatus(getAndroidNotificationStatus()), 700);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 border border-purple-300 dark:border-purple-700 font-bold text-xs transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <BatteryCharging className="w-3.5 h-3.5" />
+                  <span>
+                    {androidStatus?.batteryOptimizationIgnored ? '✓ Без ограничений батареи' : 'Разрешить в фоне'}
+                  </span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await sendTestNotification();
+                  setTestAlarmSent(true);
+                  setTimeout(() => setTestAlarmSent(false), 2500);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              >
+                <Volume2 className="w-3.5 h-3.5" />
+                <span>{testAlarmSent ? '✓ Будильник сработал!' : 'Тест будильника'}</span>
+              </button>
             </div>
           </div>
 

@@ -7,8 +7,57 @@ export const STORAGE_KEY = 'notebook_smart_notes_v1';
 export const USER_INITIALIZED_KEY = 'notebook_smart_user_initialized';
 export const SAFE_BACKUP_KEY = 'notebook_smart_notes_safe_backup';
 export const LAST_VERSION_KEY = 'notebook_smart_installed_version';
+export const GLOBAL_AUTO_CALC_KEY = 'notebook_smart_global_auto_calc';
+export const PRE_UPDATE_BACKUP_KEY = 'notebook_smart_pre_update_backup';
 export const ARCHIVED_BUDGETS_KEY = 'notebook_smart_archived_budgets_v1';
 export const ARCHIVED_SHOPPING_KEY = 'notebook_smart_archived_shopping_v1';
+
+export function getGlobalAutoCalculate(): boolean {
+  try {
+    const saved = localStorage.getItem(GLOBAL_AUTO_CALC_KEY);
+    return saved !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+export function saveGlobalAutoCalculate(enabled: boolean): void {
+  try {
+    localStorage.setItem(GLOBAL_AUTO_CALC_KEY, String(enabled));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('notebook_autocalc_changed', { detail: { enabled } }));
+    }
+  } catch {}
+}
+
+/**
+ * Ensures pre-update snapshot & migration flags are preserved across app version upgrades
+ * without ever wiping or overwriting user notes with demo data.
+ */
+export function ensurePreUpdateBackupAndMigrate(targetVersion: string): void {
+  try {
+    const lastVer = localStorage.getItem(LAST_VERSION_KEY);
+    const currentRaw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(SAFE_BACKUP_KEY);
+
+    if (currentRaw && currentRaw !== '[]') {
+      localStorage.setItem(USER_INITIALIZED_KEY, 'true');
+      if (lastVer !== targetVersion) {
+        localStorage.setItem(
+          PRE_UPDATE_BACKUP_KEY,
+          JSON.stringify({
+            fromVersion: lastVer || 'unknown',
+            toVersion: targetVersion,
+            savedAt: Date.now(),
+            raw: currentRaw,
+          })
+        );
+      }
+    }
+    localStorage.setItem(LAST_VERSION_KEY, targetVersion);
+  } catch (e) {
+    console.warn('[NotebookSmart] Pre-update backup check warning:', e);
+  }
+}
 
 const LEGACY_STORAGE_KEYS = [
   'notebook_smart_notes_v1',
@@ -148,8 +197,12 @@ function openIndexedDB(): Promise<IDBDatabase | null> {
   });
 }
 
-export async function saveNotesToIndexedDB(notes: Note[]): Promise<void> {
+export async function saveNotesToIndexedDB(notes: Note[], allowClearEmpty: boolean = false): Promise<void> {
   try {
+    // Protect IndexedDB from being wiped during startup before async recovery completes
+    if (notes.length === 0 && !allowClearEmpty) {
+      return;
+    }
     const db = await openIndexedDB();
     if (!db) return;
     const tx = db.transaction(STORE_NOTES, 'readwrite');
@@ -223,12 +276,14 @@ export function requestPersistentStorage(): void {
   }
 }
 
-export function enrichNoteMetadata(note: Note): Note {
-  const math = analyzeNote(note.content, note.category);
-  const shopping = extractShoppingItems(note.content);
+export function enrichNoteMetadata(note: Note, globalAutoCalc?: boolean): Note {
+  const effectiveAutoCalc = globalAutoCalc !== undefined ? globalAutoCalc : getGlobalAutoCalculate();
+  const math = analyzeNote(note.content || '', note.category, effectiveAutoCalc);
+  const shopping = extractShoppingItems(note.content || '');
 
   return {
     ...note,
+    tags: Array.isArray(note.tags) ? note.tags : [],
     cachedTotal: math.grandTotal,
     cachedIncome: math.totalIncome,
     cachedExpenses: math.totalExpenses,
@@ -283,7 +338,7 @@ export function loadNotes(): Note[] {
             localStorage.setItem(SAFE_BACKUP_KEY, raw);
             localStorage.setItem(USER_INITIALIZED_KEY, 'true');
             saveNotesToIndexedDB(parsed);
-            return parsed.map(enrichNoteMetadata);
+            return parsed.map((n) => enrichNoteMetadata(n));
           }
         }
       } catch (err) {
@@ -291,7 +346,7 @@ export function loadNotes(): Note[] {
       }
     }
 
-    // 4. Try recovery from safe backup
+    // 4. Try recovery from safe backup or pre-update snapshot
     const backupRaw = localStorage.getItem(SAFE_BACKUP_KEY);
     if (backupRaw) {
       try {
@@ -299,7 +354,20 @@ export function loadNotes(): Note[] {
         if (Array.isArray(backupParsed) && backupParsed.length > 0) {
           console.log(`[NotebookSmart] Recovered ${backupParsed.length} notes from safe backup.`);
           saveNotes(backupParsed);
-          return backupParsed.map(enrichNoteMetadata);
+          return backupParsed.map((n) => enrichNoteMetadata(n));
+        }
+      } catch {}
+    }
+
+    const preUpdateRaw = localStorage.getItem(PRE_UPDATE_BACKUP_KEY);
+    if (preUpdateRaw) {
+      try {
+        const snap = JSON.parse(preUpdateRaw);
+        const snapNotes: Note[] = typeof snap?.raw === 'string' ? JSON.parse(snap.raw) : [];
+        if (Array.isArray(snapNotes) && snapNotes.length > 0) {
+          console.log(`[NotebookSmart] Recovered ${snapNotes.length} notes from pre-update snapshot.`);
+          saveNotes(snapNotes);
+          return snapNotes.map((n) => enrichNoteMetadata(n));
         }
       } catch {}
     }
@@ -312,7 +380,7 @@ export function loadNotes(): Note[] {
 
     // 6. First-time brand new install ONLY:
     console.log('[NotebookSmart] First-time install: initializing introductory sample notes.');
-    const enriched = INITIAL_NOTES.map(enrichNoteMetadata);
+    const enriched = INITIAL_NOTES.map((n) => enrichNoteMetadata(n));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(enriched));
     localStorage.setItem(SAFE_BACKUP_KEY, JSON.stringify(enriched));
     localStorage.setItem(USER_INITIALIZED_KEY, 'true');
@@ -324,11 +392,11 @@ export function loadNotes(): Note[] {
     if (localStorage.getItem(USER_INITIALIZED_KEY) === 'true') {
       return [];
     }
-    return INITIAL_NOTES.map(enrichNoteMetadata);
+    return INITIAL_NOTES.map((n) => enrichNoteMetadata(n));
   }
 }
 
-export function saveNotes(notes: Note[]): void {
+export function saveNotes(notes: Note[], allowClearEmpty: boolean = false): void {
   try {
     const serialized = JSON.stringify(notes);
     localStorage.setItem(STORAGE_KEY, serialized);
@@ -340,7 +408,7 @@ export function saveNotes(notes: Note[]): void {
     localStorage.setItem(USER_INITIALIZED_KEY, 'true');
 
     // Async persistent IndexedDB write
-    saveNotesToIndexedDB(notes);
+    saveNotesToIndexedDB(notes, allowClearEmpty);
   } catch (e) {
     console.error('Failed to save notes to localStorage', e);
   }

@@ -4,6 +4,11 @@
  */
 
 import { Note } from '../types';
+import {
+  isAndroidNativeApp,
+  requestAndroidNotificationPermissions,
+  sendAndroidTestAlarm,
+} from './nativeBridge';
 
 export type NotificationPermissionState = 'default' | 'granted' | 'denied' | 'unsupported';
 
@@ -35,9 +40,12 @@ function notifyInAppAlert(alert: InAppAlert) {
 }
 
 /**
- * Checks current notification permission in browser
+ * Checks current notification permission (Android OS level if native, else browser)
  */
 export function getNotificationPermission(): NotificationPermissionState {
+  if (isAndroidNativeApp() && window.AndroidNative) {
+    return window.AndroidNative.isNotificationsEnabled() ? 'granted' : 'denied';
+  }
   if (typeof window === 'undefined' || !('Notification' in window)) {
     return 'unsupported';
   }
@@ -45,9 +53,14 @@ export function getNotificationPermission(): NotificationPermissionState {
 }
 
 /**
- * Requests permission for Web Push Notifications
+ * Requests permission for system Android notifications (or Web Push in browser)
  */
 export async function requestNotificationPermission(): Promise<boolean> {
+  if (isAndroidNativeApp() && window.AndroidNative) {
+    requestAndroidNotificationPermissions();
+    return window.AndroidNative.isNotificationsEnabled();
+  }
+
   if (typeof window === 'undefined' || !('Notification' in window)) {
     return false;
   }
@@ -184,10 +197,28 @@ export async function sendPushNotification(
 }
 
 /**
- * Send an immediate test notification to verify push and sound
+ * Send an immediate test notification / native Android alarm to verify lockscreen & sound
  */
 export async function sendTestNotification(): Promise<boolean> {
-  const perm = await requestNotificationPermission();
+  if (isAndroidNativeApp()) {
+    requestAndroidNotificationPermissions();
+    const ok = sendAndroidTestAlarm(
+      '🔔 NotebookSmart: Будильник активен',
+      'Системные напоминания будут звучать даже при заблокированном экране и в спящем режиме.'
+    );
+    playReminderChime();
+    notifyInAppAlert({
+      id: `alert-${Date.now()}`,
+      noteId: '',
+      title: '🔔 Тест системного будильника Android',
+      body: ok ? 'Системное уведомление и сигнал отправлены в Android!' : 'Проверьте разрешения уведомлений Android.',
+      category: 'event',
+      timestamp: Date.now(),
+    });
+    return ok;
+  }
+
+  await requestNotificationPermission();
   return sendPushNotification('🔔 NotebookSmart: Уведомления работают!', {
     body: 'Вы будете вовремя получать напоминания о покупках и событиях в тетрадке.',
     tag: 'test-notification',

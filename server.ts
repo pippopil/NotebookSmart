@@ -15,8 +15,12 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  // In AI Studio environment, the dev server must always run on port 3000
-  const PORT = 3000;
+  // In AI Studio environment, the dev server must run on port 3000 by default
+  const portArgIndex = process.argv.indexOf('--port');
+  const cliPort = portArgIndex !== -1 ? Number(process.argv[portArgIndex + 1]) : NaN;
+  const PORT = (!isNaN(cliPort) && cliPort > 0) ? cliPort : (Number(process.env.PORT) || 3000);
+  const hostArgIndex = process.argv.indexOf('--host');
+  const HOST = (hostArgIndex !== -1 && process.argv[hostArgIndex + 1]) ? process.argv[hostArgIndex + 1] : '0.0.0.0';
 
   app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ limit: '25mb', extended: true }));
@@ -323,10 +327,25 @@ ${content}`;
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`NotebookSmart server running on http://0.0.0.0:${PORT}`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`NotebookSmart server running on http://${HOST}:${PORT}`);
+  });
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    console.error('Server listen/runtime error:', err);
+    if (err.code === 'EADDRINUSE') {
+      process.exit(1);
+    }
   });
 }
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception in NotebookSmart server:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection in NotebookSmart server:', reason);
+});
 
 startServer().catch((err) => {
   console.error('Failed to start server:', err);

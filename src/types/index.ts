@@ -108,6 +108,8 @@ export interface Note {
   reminderDateTime?: string; // ISO string e.g. "2026-10-15T14:00"
   reminderEnabled?: boolean;
   reminderTriggered?: boolean;
+  // Smart Auto-Calculation toggle (enabled automatically when note has calculable lines)
+  autoCalculate?: boolean;
   // Archive fields
   isArchived?: boolean;
   archivedMonth?: string; // e.g. "2026-09"
@@ -172,6 +174,7 @@ export interface LineCalculation {
   isTotalLine: boolean;
   type: 'income' | 'expense' | 'total' | 'neutral';
   isPieceCalculation?: boolean;
+  lineKind?: 'money' | 'pieces' | 'math' | 'text';
 }
 
 export interface NoteCalculationSummary {

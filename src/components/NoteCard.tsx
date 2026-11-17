@@ -27,6 +27,7 @@ interface NoteCardProps {
   onTogglePin: (id: string) => void;
   onOpenShopping: (note: Note) => void;
   isLocked?: boolean;
+  globalAutoCalculate?: boolean;
   onTagClick?: (tag: string) => void;
   onShare?: (note: Note) => void;
 }
@@ -37,15 +38,26 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   onTogglePin,
   onOpenShopping,
   isLocked = false,
+  globalAutoCalculate = true,
   onTagClick,
   onShare,
 }) => {
   const isShopping = note.category === 'shopping' || (note.shoppingItemsCount || 0) > 0;
   const isEvent = note.category === 'event';
+  const isAutoCalcEnabled = globalAutoCalculate;
   const hasIncome = (note.cachedIncome || 0) > 0;
   const hasExpenses = (note.cachedExpenses || 0) > 0;
   const hasCashflow = hasIncome && hasExpenses;
-  const hasPayments = (note.cachedTotal !== undefined && note.cachedTotal > 0) || hasIncome || hasExpenses;
+  const hasMoneyCurrency = Boolean(note.currency && note.currency.trim().length > 0);
+  const hasAnyCalc =
+    isAutoCalcEnabled &&
+    ((note.cachedTotal !== undefined && note.cachedTotal !== 0) ||
+      hasIncome ||
+      hasExpenses ||
+      (note.cachedPieces !== undefined && note.cachedPieces > 0));
+  const hasPayments =
+    isAutoCalcEnabled &&
+    ((note.cachedTotal !== undefined && note.cachedTotal !== 0) || hasIncome || hasExpenses);
 
   const shoppingDone = note.completedItemsCount || 0;
   const shoppingTotal = note.shoppingItemsCount || 0;
@@ -223,9 +235,8 @@ export const NoteCard: React.FC<NoteCardProps> = ({
               {note.content || 'Пустая страница в тетрадке...'}
             </p>
 
-            {/* Category-specific calculations */}
-            {/* 1. FINANCIAL CATEGORY (payment / budget): Cashflow or total in rubles */}
-            {(note.category === 'payment' || note.category === 'budget') && (
+            {/* Automatic smart calculations (shown whenever autoCalculate !== false and numbers/pieces exist) */}
+            {hasAnyCalc && (
               hasCashflow ? (
                 <div className="bg-amber-500/10 dark:bg-stone-950/80 rounded-xl p-2.5 border border-amber-900/20 dark:border-stone-800 mb-3 space-y-1.5 font-mono text-xs">
                   <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-400 font-bold">
@@ -233,14 +244,14 @@ export const NoteCard: React.FC<NoteCardProps> = ({
                       <TrendingUp className="w-3.5 h-3.5" />
                       <span>Прибыль (доходы):</span>
                     </span>
-                    <span>+{formatMoney(note.cachedIncome!, note.currency)}</span>
+                    <span>+{formatMoney(note.cachedIncome!, note.currency || '₽')}</span>
                   </div>
                   <div className="flex items-center justify-between text-rose-800 dark:text-rose-400 font-bold">
                     <span className="flex items-center gap-1 text-[11px]">
                       <TrendingDown className="w-3.5 h-3.5" />
                       <span>Расходы (траты):</span>
                     </span>
-                    <span>−{formatMoney(note.cachedExpenses!, note.currency)}</span>
+                    <span>−{formatMoney(note.cachedExpenses!, note.currency || '₽')}</span>
                   </div>
                   <div className="pt-1 border-t border-amber-900/20 dark:border-stone-800 flex items-center justify-between font-extrabold text-stone-950 dark:text-white">
                     <span className="flex items-center gap-1 text-[11px]">
@@ -248,34 +259,35 @@ export const NoteCard: React.FC<NoteCardProps> = ({
                       <span>Остаток в итоге:</span>
                     </span>
                     <span className={(note.cachedNetBalance || 0) >= 0 ? 'text-emerald-700 dark:text-emerald-400 font-extrabold' : 'text-rose-700 dark:text-rose-400 font-extrabold'}>
-                      {formatMoney(note.cachedNetBalance || 0, note.currency)}
+                      {formatMoney(note.cachedNetBalance || 0, note.currency || '₽')}
                     </span>
                   </div>
                 </div>
-              ) : hasPayments ? (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100/80 dark:bg-emerald-500/20 border border-emerald-300 dark:border-emerald-500/30 text-emerald-950 dark:text-emerald-300 font-mono text-xs font-bold shadow-2xs mb-3 w-fit">
-                  <Calculator className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-                  <span>Итого к оплате: {formatMoney(note.cachedTotal || note.cachedExpenses || 0, note.currency)}</span>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {hasPayments && (hasMoneyCurrency || hasIncome || hasExpenses || note.category === 'payment' || note.category === 'budget') && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100/80 dark:bg-emerald-500/20 border border-emerald-300 dark:border-emerald-500/30 text-emerald-950 dark:text-emerald-300 font-mono text-xs font-bold shadow-2xs w-fit">
+                      <Calculator className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+                      <span>
+                        {hasIncome && !hasExpenses ? 'Доходы: ' : 'Сумма: '}
+                        {formatMoney(note.cachedTotal || note.cachedExpenses || note.cachedIncome || 0, note.currency || '₽')}
+                      </span>
+                    </div>
+                  )}
+                  {hasPayments && !hasMoneyCurrency && !hasIncome && !hasExpenses && note.category !== 'payment' && note.category !== 'budget' && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-100/80 dark:bg-teal-500/20 border border-teal-300 dark:border-teal-500/30 text-teal-950 dark:text-teal-300 font-mono text-xs font-bold shadow-2xs w-fit">
+                      <Calculator className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
+                      <span>Расчёт: = {formatMoney(note.cachedTotal || 0, '')}</span>
+                    </div>
+                  )}
+                  {note.cachedPieces !== undefined && note.cachedPieces > 0 && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-100/90 dark:bg-sky-500/20 border border-sky-300 dark:border-sky-500/30 text-sky-950 dark:text-sky-300 font-mono text-xs font-bold shadow-2xs w-fit">
+                      <Package className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" />
+                      <span>Итого: {note.cachedPieces} шт.</span>
+                    </div>
+                  )}
                 </div>
-              ) : null
-            )}
-
-            {/* 2. CALCULATION CATEGORY (calculation): Pure math results or piece counts without rubles */}
-            {note.category === 'calculation' && (
-              <div className="flex flex-wrap items-center gap-2 mb-3">
-                {note.cachedTotal !== undefined && note.cachedTotal > 0 && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-100/80 dark:bg-teal-500/20 border border-teal-300 dark:border-teal-500/30 text-teal-950 dark:text-teal-300 font-mono text-xs font-bold shadow-2xs w-fit">
-                    <Calculator className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
-                    <span>Итого результат: = {formatMoney(note.cachedTotal, '')}</span>
-                  </div>
-                )}
-                {note.cachedPieces !== undefined && note.cachedPieces > 0 && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-100/90 dark:bg-sky-500/20 border border-sky-300 dark:border-sky-500/30 text-sky-950 dark:text-sky-300 font-mono text-xs font-bold shadow-2xs w-fit">
-                    <Package className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" />
-                    <span>Итого: {note.cachedPieces} шт.</span>
-                  </div>
-                )}
-              </div>
+              )
             )}
 
             {/* Shopping list button indicator */}

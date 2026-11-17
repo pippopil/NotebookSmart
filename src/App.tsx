@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Note, SyncStatus, ArchivedBudgetMonth, ArchivedShoppingTrip, SecurityConfig, NoteCategory, EventCategory } from './types';
 import {
   loadNotes,
@@ -14,6 +14,9 @@ import {
   loadArchivedShopping,
   saveArchivedShopping,
   restoreNotesFromIndexedDBIfEmpty,
+  getGlobalAutoCalculate,
+  saveGlobalAutoCalculate,
+  ensurePreUpdateBackupAndMigrate,
 } from './services/storage';
 import {
   loadSecurityConfig,
@@ -59,7 +62,9 @@ import { QuickTemplatesModal, NoteTemplate } from './components/QuickTemplatesMo
 import { ShareNoteModal } from './components/ShareNoteModal';
 import { AboutView } from './components/AboutView';
 import { AppSettingsModal } from './components/AppSettingsModal';
-import { TimezoneMode, getSavedTimezoneMode, saveTimezoneMode } from './services/timezone';
+import { CalendarMonthWidget } from './components/CalendarMonthWidget';
+import { detectCountryFromTimezone } from './services/holidays';
+import { TimezoneMode, getSavedTimezoneMode, saveTimezoneMode, getActiveTodayDateStr } from './services/timezone';
 import { APP_VERSION } from './version';
 import { extractShoppingItems } from './utils/shoppingParser';
 import {
@@ -79,7 +84,10 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  const [notes, setNotes] = useState<Note[]>(() => loadNotes());
+  const [notes, setNotes] = useState<Note[]>(() => {
+    ensurePreUpdateBackupAndMigrate(APP_VERSION);
+    return loadNotes();
+  });
   const [sharingNote, setSharingNote] = useState<Note | null>(null);
   const [archivedBudgets, setArchivedBudgets] = useState<ArchivedBudgetMonth[]>(() =>
     loadArchivedBudgets()
@@ -98,6 +106,41 @@ export default function App() {
   const [isTemplatesOpen, setIsTemplatesOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [timezoneMode, setTimezoneMode] = useState<TimezoneMode>(() => getSavedTimezoneMode());
+  const [globalAutoCalculate, setGlobalAutoCalculate] = useState<boolean>(() => getGlobalAutoCalculate());
+  const hasCompletedIdbRecoveryRef = useRef<boolean>(false);
+
+  const handleGlobalAutoCalculateChange = (enabled: boolean) => {
+    nativeHaptic('light');
+    saveGlobalAutoCalculate(enabled);
+    setGlobalAutoCalculate(enabled);
+    setNotes((prev) => prev.map((n) => enrichNoteMetadata(n, enabled)));
+    setSelectedNote((prev) => (prev ? enrichNoteMetadata(prev, enabled) : null));
+  };
+  const [showHomeCalendarWidget, setShowHomeCalendarWidget] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('notebook_show_home_calendar');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const toggleHomeCalendarWidget = () => {
+    setShowHomeCalendarWidget((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('notebook_show_home_calendar', String(next));
+      } catch {}
+      return next;
+    });
+  };
+  const activeHolidayCountry = useMemo(() => {
+    try {
+      const mode = localStorage.getItem('notebook_holiday_mode');
+      if (mode === 'current_location') return detectCountryFromTimezone();
+      if (mode === 'manual_select') return localStorage.getItem('notebook_holiday_country') || 'RU';
+    } catch {}
+    return 'RU';
+  }, [activeTab]);
 
   // Listen for timezone changes dispatched from settings or subcomponents
   useEffect(() => {
@@ -190,10 +233,12 @@ export default function App() {
   // Auto-restore user notes from IndexedDB if localStorage was cleared during app update
   useEffect(() => {
     restoreNotesFromIndexedDBIfEmpty().then((recovered) => {
+      hasCompletedIdbRecoveryRef.current = true;
       if (recovered && recovered.length > 0) {
+        const autoCalc = getGlobalAutoCalculate();
         setNotes((prevNotes) => {
           if (prevNotes.length === 0) {
-            return recovered.map(enrichNoteMetadata);
+            return recovered.map((n) => enrichNoteMetadata(n, autoCalc));
           }
           return prevNotes;
         });
@@ -203,7 +248,7 @@ export default function App() {
 
   // Save notes locally whenever they change & sync with Android Home Screen Widget
   useEffect(() => {
-    saveNotes(notes);
+    saveNotes(notes, hasCompletedIdbRecoveryRef.current);
     syncWidgetFromNotes(notes);
   }, [notes]);
 
@@ -246,7 +291,7 @@ export default function App() {
         tags: extractSmartTagsLocally(title, text, category),
       };
 
-      const enriched = enrichNoteMetadata(newNote);
+      const enriched = enrichNoteMetadata(newNote, getGlobalAutoCalculate());
       setNotes((prev) => [enriched, ...prev]);
       setSelectedNote(enriched);
       setActiveTab('notes');
@@ -264,6 +309,9 @@ export default function App() {
         setActiveTab('calc');
       } else if (action === 'event') {
         handleCreateNewNote('event');
+      } else if (action === 'events') {
+        setSelectedNote(null);
+        setActiveTab('events');
       }
     };
 
@@ -381,7 +429,7 @@ export default function App() {
             remoteNotes.forEach((rn) => {
               const local = map.get(rn.id);
               if (!local || rn.updatedAt >= local.updatedAt) {
-                map.set(rn.id, enrichNoteMetadata(rn));
+                map.set(rn.id, enrichNoteMetadata(rn, getGlobalAutoCalculate()));
               }
             });
             return Array.from(map.values()).sort((a, b) => {
@@ -437,16 +485,23 @@ export default function App() {
 
       // Category filter
       if (activeCategoryFilter !== 'all' && activeCategoryFilter !== 'archive') {
-        if (activeCategoryFilter === 'note') {
+        if (activeCategoryFilter === 'calc') {
+          const hasAnyCalc =
+            globalAutoCalculate &&
+            ((n.cachedTotal || 0) !== 0 ||
+              (n.cachedIncome || 0) > 0 ||
+              (n.cachedExpenses || 0) > 0 ||
+              (n.cachedPieces || 0) > 0 ||
+              n.category === 'payment' ||
+              n.category === 'calculation' ||
+              n.category === 'budget');
+          if (!hasAnyCalc) return false;
+        } else if (activeCategoryFilter === 'note') {
           if (n.category !== 'note' && n.category !== 'general') return false;
         } else if (activeCategoryFilter === 'shopping') {
           if (n.category !== 'shopping' && (n.shoppingItemsCount || 0) === 0) return false;
         } else if (activeCategoryFilter === 'event') {
           if (n.category !== 'event') return false;
-        } else if (activeCategoryFilter === 'payment') {
-          if (n.category !== 'payment' && n.category !== 'budget') return false;
-        } else if (activeCategoryFilter === 'calculation') {
-          if (n.category !== 'calculation') return false;
         } else if (n.category !== activeCategoryFilter) {
           return false;
         }
@@ -463,7 +518,7 @@ export default function App() {
       }
       return true;
     });
-  }, [notes, activeCategoryFilter, searchQuery]);
+  }, [notes, activeCategoryFilter, searchQuery, globalAutoCalculate]);
 
   // Haptic feedback (Native Android Vibrator with browser fallback)
   const triggerHaptic = (style: 'light' | 'medium' | 'heavy' = 'light') => {
@@ -492,6 +547,10 @@ export default function App() {
       ? extractSmartTagsLocally(defaultTitle || '', initialContent, category)
       : [];
 
+    const resolvedEventDate =
+      eventDate || (category === 'event' ? getActiveTodayDateStr(timezoneMode) : undefined);
+    const resolvedEventTime = eventTime || (category === 'event' ? '14:00' : undefined);
+
     const newNote: Note = {
       id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       title: defaultTitle || '',
@@ -499,10 +558,15 @@ export default function App() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       category,
-      eventDate: eventDate || (category === 'event' ? new Date().toISOString().slice(0, 10) : undefined),
-      eventTime: eventTime || (category === 'event' ? '14:00' : undefined),
+      eventDate: resolvedEventDate,
+      eventTime: resolvedEventTime,
       eventCategory: eventCategory || (category === 'event' ? 'meeting' : undefined),
       isEventDone: false,
+      reminderEnabled: category === 'event',
+      reminderDateTime:
+        category === 'event' && resolvedEventDate && resolvedEventTime
+          ? `${resolvedEventDate}T${resolvedEventTime}`
+          : undefined,
       paperStyle: 'grid',
       color:
         category === 'note'
@@ -516,10 +580,22 @@ export default function App() {
       tags: initialTags,
     };
 
-    const enriched = enrichNoteMetadata(newNote);
+    const enriched = enrichNoteMetadata(newNote, globalAutoCalculate);
     setNotes((prev) => [enriched, ...prev]);
     setSelectedNote(enriched);
     syncNoteToRemote(roomCode, enriched);
+    if (enriched.reminderEnabled && enriched.reminderDateTime) {
+      const triggerTime = new Date(enriched.reminderDateTime).getTime();
+      if (triggerTime > Date.now()) {
+        scheduleNativeAlarm(
+          enriched.id,
+          `📅 Событие: ${enriched.title || 'Событие в тетради'}`,
+          enriched.content.trim().slice(0, 100) || 'Время запланированного мероприятия',
+          triggerTime,
+          enriched.category
+        );
+      }
+    }
   };
 
   const handleApplyTemplate = (tpl: NoteTemplate) => {
@@ -536,7 +612,7 @@ export default function App() {
       isPinned: false,
       tags: templateTags.length > 0 ? templateTags : [tpl.category === 'payment' ? '#finances' : tpl.category === 'shopping' ? '#shopping' : '#personal'],
     };
-    const enriched = enrichNoteMetadata(newNote);
+    const enriched = enrichNoteMetadata(newNote, globalAutoCalculate);
     setNotes((prev) => [enriched, ...prev]);
     setSelectedNote(enriched);
     syncNoteToRemote(roomCode, enriched);
@@ -552,7 +628,7 @@ export default function App() {
   };
 
   const handleUpdateNote = (updated: Note) => {
-    const enriched = enrichNoteMetadata(updated);
+    const enriched = enrichNoteMetadata(updated, globalAutoCalculate);
     setNotes((prev) => prev.map((n) => (n.id === enriched.id ? enriched : n)));
     syncNoteToRemote(roomCode, enriched);
 
@@ -720,7 +796,7 @@ export default function App() {
   };
 
   const handleRestoreNote = (restoredNote: Note) => {
-    const enriched = enrichNoteMetadata(restoredNote);
+    const enriched = enrichNoteMetadata(restoredNote, globalAutoCalculate);
     setNotes((prev) => [enriched, ...prev]);
     setSelectedNote(enriched);
     syncNoteToRemote(roomCode, enriched);
@@ -740,7 +816,7 @@ export default function App() {
   });
 
   return (
-    <div className="min-h-screen bg-[#faf7f2] dark:bg-[#141210] text-stone-900 dark:text-stone-100 flex flex-col font-sans select-none transition-colors duration-200">
+    <div className="h-[100dvh] overflow-hidden bg-[#faf7f2] dark:bg-[#141210] text-stone-900 dark:text-stone-100 flex flex-col font-sans select-none transition-colors duration-200">
       {/* In-App Push Reminder Toast Banner */}
       {inAppAlert && (
         <div className="fixed top-16 left-4 right-4 z-50 max-w-md mx-auto bg-stone-900/95 dark:bg-stone-100/95 text-white dark:text-stone-900 p-4 rounded-3xl shadow-2xl backdrop-blur-md border border-amber-500/30 animate-in fade-in slide-in-from-top-4 flex items-start justify-between gap-3">
@@ -802,20 +878,128 @@ export default function App() {
       />
 
       {/* Main View Area */}
-      <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-3">
+      <main className="flex-1 min-h-0 flex flex-col overflow-hidden w-full">
+        {/* TAB 3: EVENTS & CALENDAR (Owns full-page flex-1 overflow-y-auto scroll container) */}
+        {activeTab === 'events' ? (
+          <EventsView
+            notes={notes}
+            timezoneMode={timezoneMode}
+            onTimezoneModeChange={(newMode) => {
+              setTimezoneMode(newMode);
+              saveTimezoneMode(newMode);
+            }}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenNote={handleOpenNote}
+            onCreateEvent={(title, date, time, eventCategory) => handleCreateNewNote('event', title, date, time, eventCategory)}
+            onToggleEventDone={handleToggleEventDone}
+          />
+        ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain w-full">
+        <div className="max-w-4xl mx-auto px-4 py-3">
         {/* TAB 1: NOTES LIST */}
         {activeTab === 'notes' && (
           <div className="pb-24">
-            {/* Responsive Category Filter Tabs (Fits cleanly across mobile screens) */}
+            {/* Control Panel Bar: Global Automatic Calculation Switch + Calendar Widget */}
+            <div className="mb-3 p-2.5 sm:px-3.5 rounded-2xl bg-white/90 dark:bg-stone-900/80 border border-amber-900/10 dark:border-stone-800 shadow-2xs flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={globalAutoCalculate}
+                onClick={() => handleGlobalAutoCalculateChange(!globalAutoCalculate)}
+                className="flex items-center gap-2 cursor-pointer"
+                title="Включить или отключить автоматический расчёт финансовых выражений во всех заметках одновременно"
+              >
+                <Calculator
+                  className={`w-4 h-4 shrink-0 ${
+                    globalAutoCalculate ? 'text-emerald-600 dark:text-emerald-400' : 'text-stone-400'
+                  }`}
+                />
+                <span className="text-xs font-bold text-stone-900 dark:text-white">
+                  Автоматический расчёт
+                </span>
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                    globalAutoCalculate
+                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-stone-200 dark:bg-stone-800 text-stone-500'
+                  }`}
+                >
+                  {globalAutoCalculate ? 'ВКЛ' : 'ВЫКЛ'}
+                </span>
+                <div
+                  className={`w-9 h-5 flex items-center rounded-full p-0.5 transition ${
+                    globalAutoCalculate ? 'bg-emerald-600' : 'bg-stone-300 dark:bg-stone-700'
+                  }`}
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow transform transition duration-200 ${
+                      globalAutoCalculate ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                className="text-[11px] font-semibold text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 underline cursor-pointer"
+              >
+                Все настройки
+              </button>
+            </div>
+
+            {/* Prominent In-App Calendar & Nearest Event/Reminder/Task Widget */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic();
+                    toggleHomeCalendarWidget();
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-extrabold text-purple-800 dark:text-purple-300 hover:opacity-80 cursor-pointer"
+                >
+                  <Calendar className="w-4 h-4" />
+                  <span>📅 Виджет: Календарь и ближайшие дела</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/15 border border-purple-400/30">
+                    {showHomeCalendarWidget ? 'Свернуть' : 'Показать'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic();
+                    setActiveTab('events');
+                  }}
+                  className="text-[11px] font-bold text-purple-700 dark:text-purple-400 hover:underline cursor-pointer"
+                >
+                  Открыть события →
+                </button>
+              </div>
+              {showHomeCalendarWidget && (
+                <CalendarMonthWidget
+                  notes={notes}
+                  timezoneMode={timezoneMode}
+                  countryCode={activeHolidayCountry}
+                  compact
+                  onOpenNote={handleOpenNote}
+                  onSelectDate={(dateStr) => {
+                    triggerHaptic();
+                    setActiveTab('events');
+                  }}
+                />
+              )}
+            </div>
+
+            {/* Responsive Category Filter Tabs */}
             <div className="relative mb-3">
               <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto pb-1 scrollbar-none scroll-smooth">
                 {[
                   { id: 'all', label: 'Все записи', shortLabel: 'Все', icon: '📋' },
-                  { id: 'note', label: 'Заметки (без счёта)', shortLabel: 'Заметки', icon: '📝' },
-                  { id: 'payment', label: 'Финансы (деньги ₽)', shortLabel: 'Финансы', icon: '💰' },
-                  { id: 'calculation', label: 'Расчёт (штуки/счёт)', shortLabel: 'Расчёт', icon: '🧮' },
+                  { id: 'calc', label: 'С расчётами', shortLabel: 'С расчётами', icon: '💰' },
                   { id: 'shopping', label: 'Покупки', shortLabel: 'Покупки', icon: '🛒' },
                   { id: 'event', label: 'События', shortLabel: 'События', icon: '📅' },
+                  { id: 'note', label: 'Заметки', shortLabel: 'Заметки', icon: '📝' },
                   { id: 'archive', label: 'Архив', shortLabel: 'Архив', icon: '📦' },
                 ].map((c) => (
                   <button
@@ -892,21 +1076,7 @@ export default function App() {
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md transition active:scale-95"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>Просто заметка</span>
-                  </button>
-                  <button
-                    onClick={() => handleCreateNewNote('payment')}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-md transition active:scale-95"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Финансы (деньги)</span>
-                  </button>
-                  <button
-                    onClick={() => handleCreateNewNote('calculation')}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold shadow-md transition active:scale-95"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Расчёт (штуки/счёт)</span>
+                    <span>Новая запись</span>
                   </button>
                   <button
                     onClick={() => handleCreateNewNote('shopping')}
@@ -931,6 +1101,7 @@ export default function App() {
                     key={note.id}
                     note={note}
                     isLocked={isSectionLocked(note.category)}
+                    globalAutoCalculate={globalAutoCalculate}
                     onOpen={handleOpenNote}
                     onTogglePin={handleTogglePin}
                     onOpenShopping={handleOpenShoppingFromNote}
@@ -966,22 +1137,6 @@ export default function App() {
           )
         )}
 
-        {/* TAB 3: EVENTS & CALENDAR */}
-        {activeTab === 'events' && (
-          <EventsView
-            notes={notes}
-            timezoneMode={timezoneMode}
-            onTimezoneModeChange={(newMode) => {
-              setTimezoneMode(newMode);
-              saveTimezoneMode(newMode);
-            }}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onOpenNote={handleOpenNote}
-            onCreateEvent={(title, date, time, eventCategory) => handleCreateNewNote('event', title, date, time, eventCategory)}
-            onToggleEventDone={handleToggleEventDone}
-          />
-        )}
-
         {/* TAB 4: PAYMENTS & CALCULATOR */}
         {activeTab === 'calc' && (
           isSectionLocked('calc') ? (
@@ -999,6 +1154,8 @@ export default function App() {
           ) : (
             <CalculatorView
               notes={notes}
+              globalAutoCalculate={globalAutoCalculate}
+              onToggleGlobalAutoCalculate={handleGlobalAutoCalculateChange}
               onOpenNote={handleOpenNote}
               onCreatePaymentNote={() => handleCreateNewNote('payment')}
             />
@@ -1011,7 +1168,7 @@ export default function App() {
             syncStatus={syncStatus}
             notes={notes}
             onImportNotes={(imported) => {
-              setNotes(imported.map(enrichNoteMetadata));
+              setNotes(imported.map((n) => enrichNoteMetadata(n, globalAutoCalculate)));
               saveNotes(imported);
             }}
             onRefreshSync={() => {
@@ -1064,11 +1221,14 @@ export default function App() {
             onOpenChangelog={() => setIsChangelogOpen(true)}
             onOpenSecurity={() => setIsSecurityModalOpen(true)}
             onRestoreNotes={(importedNotes) => {
-              const enriched = importedNotes.map(enrichNoteMetadata);
+              const enriched = importedNotes.map((n) => enrichNoteMetadata(n, globalAutoCalculate));
               setNotes((prev) => [...enriched, ...prev]);
               saveNotes([...enriched, ...notes]);
             }}
           />
+        )}
+        </div>
+        </div>
         )}
       </main>
 
@@ -1076,6 +1236,7 @@ export default function App() {
       {selectedNote && (
         <NoteEditor
           note={selectedNote}
+          globalAutoCalculate={globalAutoCalculate}
           onUpdate={handleUpdateNote}
           onDelete={handleDeleteNote}
           onClose={() => setSelectedNote(null)}
@@ -1150,7 +1311,7 @@ export default function App() {
         isCurrentlyUnlocked={isUnlocked}
       />
 
-      {/* Application Settings Modal (Timezone, Security, Theme, etc.) */}
+      {/* Application Settings Modal (Global Calc, Timezone, Security, Theme, etc.) */}
       <AppSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -1159,6 +1320,8 @@ export default function App() {
           setTimezoneMode(newMode);
           saveTimezoneMode(newMode);
         }}
+        globalAutoCalculate={globalAutoCalculate}
+        onGlobalAutoCalculateChange={handleGlobalAutoCalculateChange}
         onOpenSecurity={() => setIsSecurityModalOpen(true)}
         onOpenChangelog={() => setIsChangelogOpen(true)}
       />
